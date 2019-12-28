@@ -1010,6 +1010,12 @@ impl Item {
             _ => None,
         }
     }
+    fn has_time(&self) -> bool {
+        match self {
+            Item::Event(_, _) | Item::Note(_, _) | Item::Done(_, _) => true,
+            _ => false,
+        }
+    }
     fn offset(&self) -> usize {
         match self {
             Item::Event(_, i) => *i,
