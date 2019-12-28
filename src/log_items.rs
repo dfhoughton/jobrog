@@ -1,14 +1,17 @@
 // stuff for
 extern crate chrono;
+extern crate clap;
 extern crate larry;
 extern crate pidgin;
 extern crate regex;
 use crate::util::log_path;
-use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, Timelike};
-use larry::{Larry, Lerror};
+use chrono::{Datelike, Local, NaiveDate, NaiveDateTime, Timelike};
+use clap::ArgMatches;
+use larry::Larry;
 use pidgin::{Grammar, Matcher};
-use regex::Regex;
+use regex::{Regex, RegexSet};
 use std::fs::File;
+use std::io::{BufRead, BufReader, Lines};
 use std::path::PathBuf;
 
 lazy_static! {
@@ -79,13 +82,20 @@ pub fn parse_line(line: &str, offset: usize) -> Item {
 }
 
 pub struct LogReader {
-    larry: Larry,
+    pub larry: Larry,
+    pub path: String,
 }
 
 impl LogReader {
     pub fn new(log: Option<PathBuf>) -> Result<LogReader, std::io::Error> {
         let log = log.unwrap_or(log_path());
-        Larry::new(log.as_path()).and_then(|log| Ok(LogReader { larry: log }))
+        let path = log.as_path().to_str();
+        Larry::new(log.as_path()).and_then(|log| {
+            Ok(LogReader {
+                larry: log,
+                path: path.unwrap().to_owned(),
+            })
+        })
     }
     // find best line offset for a timestamp in a log file
     // best is the earliest instance of the line with the timestamp or, barring that, the earliest
@@ -229,12 +239,276 @@ impl LogReader {
         }
         ptr
     }
+    pub fn events_from_the_end(self) -> EventsBefore {
+        EventsBefore::new(self.larry.len(), self)
+    }
+    pub fn notes_from_the_end(self) -> NotesBefore {
+        NotesBefore::new(self.larry.len(), self)
+    }
+    pub fn events_from_the_beginning(self) -> EventsAfter {
+        EventsAfter::new(0, &self)
+    }
+    pub fn notes_from_the_beginning(self) -> NotesAfter {
+        NotesAfter::new(0, &self)
+    }
+    pub fn events_in_range(&mut self, start: &NaiveDateTime, end: &NaiveDateTime) -> Vec<Event> {
+        let mut ret = vec![];
+        if let Some(item) = self.find_line(start) {
+            for e in EventsAfter::new(item.offset(), self) {
+                if &e.start < end {
+                    ret.push(e);
+                } else {
+                    break;
+                }
+            }
+        }
+        ret
+    }
+    pub fn notes_in_range(&mut self, start: &NaiveDateTime, end: &NaiveDateTime) -> Vec<Note> {
+        let mut ret = vec![];
+        if let Some(item) = self.find_line(start) {
+            for n in NotesAfter::new(item.offset(), self) {
+                if &n.time < end {
+                    ret.push(n);
+                } else {
+                    break;
+                }
+            }
+        }
+        ret
+    }
+}
+
+struct ItemsBefore {
+    offset: Option<usize>,
+    larry: Larry,
+}
+
+impl ItemsBefore {
+    fn new(offset: usize, reader: LogReader) -> ItemsBefore {
+        let larry = reader.larry;
+        ItemsBefore {
+            offset: Some(offset),
+            larry,
+        }
+    }
+}
+
+impl Iterator for ItemsBefore {
+    type Item = Item;
+    fn next(&mut self) -> Option<Item> {
+        if let Some(o) = self.offset {
+            let line = self.larry.get(o).unwrap();
+            let item = parse_line(line, o);
+            self.offset = if o > 0 { Some(o - 1) } else { None };
+            Some(item)
+        } else {
+            None
+        }
+    }
+}
+
+struct ItemsAfter {
+    offset: usize,
+    bufreader: Lines<BufReader<File>>,
+}
+
+impl ItemsAfter {
+    fn new(offset: usize, path: &str) -> ItemsAfter {
+        let mut bufreader =
+            BufReader::new(File::open(path).expect("could not open log file")).lines();
+        for _ in 0..offset {
+            bufreader.next();
+        }
+        ItemsAfter { offset, bufreader }
+    }
+}
+
+impl Iterator for ItemsAfter {
+    type Item = Item;
+    fn next(&mut self) -> Option<Item> {
+        if let Some(res) = self.bufreader.next() {
+            let line = res.expect("coult not read log line");
+            let item = parse_line(&line, self.offset);
+            self.offset += 1;
+            Some(item)
+        } else {
+            None
+        }
+    }
+}
+
+pub struct NotesBefore {
+    item_iterator: ItemsBefore,
+}
+
+impl NotesBefore {
+    fn new(offset: usize, reader: LogReader) -> NotesBefore {
+        NotesBefore {
+            item_iterator: ItemsBefore::new(offset, reader),
+        }
+    }
+}
+
+impl Iterator for NotesBefore {
+    type Item = Note;
+    fn next(&mut self) -> Option<Note> {
+        loop {
+            let item = self.item_iterator.next();
+            if let Some(item) = item {
+                match item {
+                    Item::Note(n, _) => return Some(n),
+                    _ => (),
+                }
+            } else {
+                return None;
+            }
+        }
+    }
+}
+
+pub struct NotesAfter {
+    item_iterator: ItemsAfter,
+}
+
+impl NotesAfter {
+    fn new(offset: usize, reader: &LogReader) -> NotesAfter {
+        NotesAfter {
+            item_iterator: ItemsAfter::new(offset, &reader.path),
+        }
+    }
+}
+
+impl Iterator for NotesAfter {
+    type Item = Note;
+    fn next(&mut self) -> Option<Note> {
+        loop {
+            let item = self.item_iterator.next();
+            if let Some(item) = item {
+                match item {
+                    Item::Note(n, _) => return Some(n),
+                    _ => (),
+                }
+            } else {
+                return None;
+            }
+        }
+    }
+}
+
+pub struct EventsBefore {
+    last_time: Option<NaiveDateTime>,
+    item_iterator: ItemsBefore,
+}
+
+impl EventsBefore {
+    fn new(offset: usize, reader: LogReader) -> EventsBefore {
+        // the last event may be underway at the offset, so find out when it ends
+        let items_after = ItemsAfter::new(offset + 1, &reader.path);
+        let timed_item = items_after
+            .filter(|i| match i {
+                Item::Event(_, _) | Item::Done(_, _) => true,
+                _ => false,
+            })
+            .find(|i| i.time().is_some());
+        let last_time = if let Some(i) = timed_item {
+            Some(i.time().unwrap().0.to_owned())
+        } else {
+            None
+        };
+        EventsBefore {
+            last_time,
+            item_iterator: ItemsBefore::new(offset, reader),
+        }
+    }
+}
+
+impl Iterator for EventsBefore {
+    type Item = Event;
+    fn next(&mut self) -> Option<Event> {
+        let mut last_time = self.last_time;
+        let mut event: Option<Event> = None;
+        loop {
+            if let Some(i) = self.item_iterator.next() {
+                match i {
+                    Item::Event(e, _) => {
+                        event = Some(e.bounded_time(last_time));
+                        break;
+                    }
+                    Item::Done(d, _) => {
+                        last_time = Some(d.0);
+                    }
+                    _ => (),
+                }
+            } else {
+                break;
+            }
+        }
+        self.last_time = if event.is_some() {
+            Some(event.as_ref().unwrap().start.clone())
+        } else {
+            last_time
+        };
+        event
+    }
+}
+
+pub struct EventsAfter {
+    next_item: Option<Event>,
+    item_iterator: ItemsAfter,
+}
+
+impl EventsAfter {
+    fn new(offset: usize, reader: &LogReader) -> EventsAfter {
+        EventsAfter {
+            next_item: None,
+            item_iterator: ItemsAfter::new(offset, &reader.path),
+        }
+    }
+    fn get_end_time(&mut self) -> Option<NaiveDateTime> {
+        loop {
+            if let Some(i) = self.item_iterator.next() {
+                match i {
+                    Item::Event(e, _) => {
+                        let time = e.start.clone();
+                        self.next_item = Some(e);
+                        return Some(time);
+                    }
+                    Item::Done(d, _) => return Some(d.0),
+                    _ => (),
+                }
+            } else {
+                return None;
+            }
+        }
+    }
+}
+
+impl Iterator for EventsAfter {
+    type Item = Event;
+    fn next(&mut self) -> Option<Event> {
+        if let Some(event) = &self.next_item {
+            return Some(event.clone().bounded_time(self.get_end_time()));
+        }
+        loop {
+            if let Some(i) = self.item_iterator.next() {
+                match i {
+                    Item::Event(e, _) => return Some(e.bounded_time(self.get_end_time())),
+                    _ => (),
+                }
+            } else {
+                return None;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Duration;
     use rand::Rng;
+    use std::fs::File;
     use std::io::prelude::*;
     use std::io::LineWriter;
     use std::ops::AddAssign;
@@ -392,11 +666,6 @@ mod tests {
     fn test_large_file() {
         test_log(10000);
     }
-
-    // #[test]
-    // fn test_huge_file() {
-    //     test_log(100000);
-    // }
 
     #[test]
     fn test_event() {
@@ -741,12 +1010,6 @@ impl Item {
             _ => None,
         }
     }
-    fn has_time(&self) -> bool {
-        match self {
-            Item::Event(_, _) | Item::Note(_, _) | Item::Done(_, _) => true,
-            _ => false,
-        }
-    }
     fn offset(&self) -> usize {
         match self {
             Item::Event(_, i) => *i,
@@ -870,14 +1133,22 @@ impl Event {
             tags: tags,
         }
     }
+    pub fn bounded_time(self, end: Option<NaiveDateTime>) -> Self {
+        Event {
+            start: self.start,
+            end: end,
+            description: self.description,
+            tags: self.tags,
+        }
+    }
 }
 
 impl Searchable for Event {
-    fn has_tag(&self, tag: &str) -> bool {
-        self.tags.iter().any(|s| s == tag) // linear search is most likely fastest
+    fn text(&self) -> &str {
+        &self.description
     }
-    fn search(&self, rx: &Regex) -> bool {
-        rx.is_match(&self.description)
+    fn tags(&self) -> Vec<&str> {
+        self.tags.iter().map(|s| s.as_str()).collect()
     }
 }
 
@@ -899,11 +1170,11 @@ impl Note {
 }
 
 impl Searchable for Note {
-    fn has_tag(&self, tag: &str) -> bool {
-        self.tags.iter().any(|s| s == tag) // linear search is most likely fastest
+    fn text(&self) -> &str {
+        &self.description
     }
-    fn search(&self, rx: &Regex) -> bool {
-        rx.is_match(&self.description)
+    fn tags(&self) -> Vec<&str> {
+        self.tags.iter().map(|s| s.as_str()).collect()
     }
 }
 
@@ -957,7 +1228,93 @@ impl LogLine for Event {
     }
 }
 
-trait Searchable {
-    fn has_tag(&self, tag: &str) -> bool;
-    fn search(&self, rx: &Regex) -> bool;
+pub trait Searchable {
+    fn tags(&self) -> Vec<&str>;
+    fn text(&self) -> &str;
+}
+
+pub struct Filter<'a> {
+    all_tags: Option<Vec<&'a str>>,
+    no_tags: Option<Vec<&'a str>>,
+    some_tags: Option<Vec<&'a str>>,
+    some_patterns: Option<RegexSet>,
+    no_patterns: Option<RegexSet>,
+}
+
+impl<'a> Filter<'a> {
+    pub fn new(matches: &'a ArgMatches) -> Filter<'a> {
+        let all_tags = matches
+            .values_of("tag")
+            .and_then(|values| Some(values.collect()));
+        let no_tags = matches
+            .values_of("tag-none")
+            .and_then(|values| Some(values.collect()));
+        let some_tags = matches
+            .values_of("tag-some")
+            .and_then(|values| Some(values.collect()));
+        let some_patterns = matches
+            .values_of("rx")
+            .and_then(|values| Some(RegexSet::new(values).unwrap()));
+        let no_patterns = matches
+            .values_of("rx-not")
+            .and_then(|values| Some(RegexSet::new(values).unwrap()));
+        Filter {
+            all_tags,
+            no_tags,
+            some_tags,
+            some_patterns,
+            no_patterns,
+        }
+    }
+    pub fn matches<T: Searchable>(&self, filterable: &T) -> bool {
+        let tags = filterable.tags();
+        let text = filterable.text();
+        if tags.is_empty() {
+            if !(self.all_tags.is_none() && self.some_tags.is_none()) {
+                return false;
+            }
+        } else {
+            if self.some_tags.is_some()
+                && !self
+                    .some_tags
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .any(|t| tags.contains(t))
+            {
+                return false;
+            }
+            if self.all_tags.is_some()
+                && self
+                    .all_tags
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .any(|t| !tags.contains(t))
+            {
+                return false;
+            }
+            if self.no_tags.is_some()
+                && self
+                    .no_tags
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .any(|t| tags.contains(t))
+            {
+                return false;
+            }
+        }
+        if let Some(rx_set) = self.some_patterns.as_ref() {
+            if !rx_set.is_match(text) {
+                return false;
+            }
+        }
+        if let Some(rx_set) = self.no_patterns.as_ref() {
+            if rx_set.is_match(text) {
+                return false;
+            }
+        }
+        true
+    }
 }

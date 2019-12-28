@@ -1,12 +1,12 @@
 extern crate clap;
 extern crate two_timer;
 
-use crate::util::tag_search_arguments;
+use crate::util::common_search_or_filter_arguments;
 use clap::{App, Arg, ArgMatches, SubCommand};
 use two_timer::{parsable, parse};
 
 pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
-    mast.subcommand(tag_search_arguments(
+    mast.subcommand(common_search_or_filter_arguments(
         SubCommand::with_name("summary")
             .aliases(&["s", "su", "sum", "summ", "summa", "summar"])
             .about("says when you will have worked all the hours expected within the given period")
@@ -22,6 +22,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                     .multiple(true)
             )
             .display_order(3),
+            None,
     ).arg(
         Arg::with_name("date")
         .long("date")
