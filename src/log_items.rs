@@ -634,7 +634,7 @@ mod tests {
                     }
                     last_time = Some(e.start.clone());
                     ret.push(e);
-                },
+                }
                 _ => (),
             }
         }
@@ -648,7 +648,7 @@ mod tests {
             match i {
                 Item::Note(n, _) => {
                     ret.push(n.clone());
-                },
+                }
                 _ => (),
             }
         }
@@ -661,15 +661,21 @@ mod tests {
         let notes = notes(items);
         assert!(notes.len() > 1, "found more than one note");
         let mut log_reader = LogReader::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
-        for i in 0..notes.len()-1 {
+        for i in 0..notes.len() - 1 {
             for j in i..notes.len() {
                 let found_notes = log_reader.notes_in_range(&notes[i].time, &notes[j].time);
-                assert!(j - i == found_notes.len(), "found as many events as expected");
+                assert!(
+                    j - i == found_notes.len(),
+                    "found as many events as expected"
+                );
                 for offset in 0..found_notes.len() {
                     let k = i + offset;
                     assert_eq!(notes[k].time, found_notes[offset].time, "same time");
                     assert_eq!(notes[k].tags, found_notes[offset].tags, "same tags");
-                    assert_eq!(notes[k].description, found_notes[offset].description, "same description");
+                    assert_eq!(
+                        notes[k].description, found_notes[offset].description,
+                        "same description"
+                    );
                 }
             }
         }
@@ -682,16 +688,22 @@ mod tests {
         let events = closed_events(items);
         assert!(events.len() > 1, "found more than one event");
         let mut log_reader = LogReader::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
-        for i in 0..events.len()-1 {
+        for i in 0..events.len() - 1 {
             for j in i..events.len() {
                 let found_events = log_reader.events_in_range(&events[i].start, &events[j].start);
-                assert!(j - i <= found_events.len(), "found at least as many events as expected");
+                assert!(
+                    j - i <= found_events.len(),
+                    "found at least as many events as expected"
+                );
                 for offset in 0..found_events.len() {
                     let k = i + offset;
                     assert_eq!(events[k].start, found_events[offset].start, "same start");
                     assert_eq!(events[k].end, found_events[offset].end, "same end");
                     assert_eq!(events[k].tags, found_events[offset].tags, "same tags");
-                    assert_eq!(events[k].description, found_events[offset].description, "same description");
+                    assert_eq!(
+                        events[k].description, found_events[offset].description,
+                        "same description"
+                    );
                 }
             }
         }
@@ -705,11 +717,18 @@ mod tests {
         notes.reverse();
         let log_reader = LogReader::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
         let found_notes = log_reader.notes_from_the_end().collect::<Vec<_>>();
-        assert_eq!(notes.len(), found_notes.len(), "found the right number of notes");
+        assert_eq!(
+            notes.len(),
+            found_notes.len(),
+            "found the right number of notes"
+        );
         for (i, e) in notes.iter().enumerate() {
             assert_eq!(e.time, found_notes[i].time, "they occur at the same time");
             assert_eq!(e.tags, found_notes[i].tags, "they have the same tags");
-            assert_eq!(e.description, found_notes[i].description, "they have the same text");
+            assert_eq!(
+                e.description, found_notes[i].description,
+                "they have the same text"
+            );
         }
         std::fs::remove_file(path).unwrap();
     }
@@ -720,11 +739,18 @@ mod tests {
         let notes = notes(items);
         let log_reader = LogReader::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
         let found_notes = log_reader.notes_from_the_beginning().collect::<Vec<_>>();
-        assert_eq!(notes.len(), found_notes.len(), "found the right number of notes");
+        assert_eq!(
+            notes.len(),
+            found_notes.len(),
+            "found the right number of notes"
+        );
         for (i, n) in notes.iter().enumerate() {
             assert_eq!(n.time, found_notes[i].time, "they occur at the same time");
             assert_eq!(n.tags, found_notes[i].tags, "they have the same tags");
-            assert_eq!(n.description, found_notes[i].description, "they have the same text");
+            assert_eq!(
+                n.description, found_notes[i].description,
+                "they have the same text"
+            );
         }
         std::fs::remove_file(path).unwrap();
     }
@@ -736,12 +762,22 @@ mod tests {
         events.reverse();
         let log_reader = LogReader::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
         let found_events = log_reader.events_from_the_end().collect::<Vec<_>>();
-        assert_eq!(events.len(), found_events.len(), "found the right number of events");
+        assert_eq!(
+            events.len(),
+            found_events.len(),
+            "found the right number of events"
+        );
         for (i, e) in events.iter().enumerate() {
-            assert_eq!(e.start, found_events[i].start, "they start at the same time");
+            assert_eq!(
+                e.start, found_events[i].start,
+                "they start at the same time"
+            );
             assert_eq!(e.end, found_events[i].end, "they end at the same time");
             assert_eq!(e.tags, found_events[i].tags, "they have the same tags");
-            assert_eq!(e.description, found_events[i].description, "they have the same description");
+            assert_eq!(
+                e.description, found_events[i].description,
+                "they have the same description"
+            );
         }
         std::fs::remove_file(path).unwrap();
     }
@@ -752,12 +788,22 @@ mod tests {
         let events = closed_events(items);
         let log_reader = LogReader::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
         let found_events = log_reader.events_from_the_beginning().collect::<Vec<_>>();
-        assert_eq!(events.len(), found_events.len(), "found the right number of events");
+        assert_eq!(
+            events.len(),
+            found_events.len(),
+            "found the right number of events"
+        );
         for (i, e) in events.iter().enumerate() {
-            assert_eq!(e.start, found_events[i].start, "they start at the same time");
+            assert_eq!(
+                e.start, found_events[i].start,
+                "they start at the same time"
+            );
             assert_eq!(e.end, found_events[i].end, "they end at the same time");
             assert_eq!(e.tags, found_events[i].tags, "they have the same tags");
-            assert_eq!(e.description, found_events[i].description, "they have the same description");
+            assert_eq!(
+                e.description, found_events[i].description,
+                "they have the same description"
+            );
         }
         std::fs::remove_file(path).unwrap();
     }
