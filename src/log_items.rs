@@ -240,10 +240,10 @@ impl LogReader {
         ptr
     }
     pub fn events_from_the_end(self) -> EventsBefore {
-        EventsBefore::new(self.larry.len(), self)
+        EventsBefore::new(self.larry.len() - 1, self)
     }
     pub fn notes_from_the_end(self) -> NotesBefore {
-        NotesBefore::new(self.larry.len(), self)
+        NotesBefore::new(self.larry.len() - 1, self)
     }
     pub fn events_from_the_beginning(self) -> EventsAfter {
         EventsAfter::new(0, &self)
@@ -328,7 +328,7 @@ impl Iterator for ItemsAfter {
     type Item = Item;
     fn next(&mut self) -> Option<Item> {
         if let Some(res) = self.bufreader.next() {
-            let line = res.expect("coult not read log line");
+            let line = res.expect("could not read log line");
             let item = parse_line(&line, self.offset);
             self.offset += 1;
             Some(item)
@@ -466,6 +466,7 @@ impl EventsAfter {
         }
     }
     fn get_end_time(&mut self) -> Option<NaiveDateTime> {
+        self.next_item = None;
         loop {
             if let Some(i) = self.item_iterator.next() {
                 match i {
@@ -527,6 +528,7 @@ mod tests {
 
     fn random_tags() -> Vec<String> {
         let mut tags = random_words(0, 5);
+        tags.sort_unstable();
         tags.dedup();
         tags
     }
@@ -616,6 +618,148 @@ mod tests {
             }
         }
         (items, path)
+    }
+
+    fn closed_events(mut items: Vec<Item>) -> Vec<Event> {
+        items.reverse();
+        let mut ret = Vec::with_capacity(items.len());
+        let mut last_time: Option<NaiveDateTime> = None;
+        for i in items.iter() {
+            match i {
+                Item::Done(Done(t), _) => last_time = Some(t.clone()),
+                Item::Event(e, _) => {
+                    let mut e = e.clone();
+                    if last_time.is_some() {
+                        e.end = last_time;
+                    }
+                    last_time = Some(e.start.clone());
+                    ret.push(e);
+                },
+                _ => (),
+            }
+        }
+        ret.reverse();
+        ret
+    }
+
+    fn notes(items: Vec<Item>) -> Vec<Note> {
+        let mut ret = Vec::with_capacity(items.len());
+        for i in items.iter() {
+            match i {
+                Item::Note(n, _) => {
+                    ret.push(n.clone());
+                },
+                _ => (),
+            }
+        }
+        ret
+    }
+
+    #[test]
+    fn test_notes_in_range() {
+        let (items, path) = random_log(100);
+        let notes = notes(items);
+        assert!(notes.len() > 1, "found more than one note");
+        let mut log_reader = LogReader::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        for i in 0..notes.len()-1 {
+            for j in i..notes.len() {
+                let found_notes = log_reader.notes_in_range(&notes[i].time, &notes[j].time);
+                assert!(j - i == found_notes.len(), "found as many events as expected");
+                for offset in 0..found_notes.len() {
+                    let k = i + offset;
+                    assert_eq!(notes[k].time, found_notes[offset].time, "same time");
+                    assert_eq!(notes[k].tags, found_notes[offset].tags, "same tags");
+                    assert_eq!(notes[k].description, found_notes[offset].description, "same description");
+                }
+            }
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_events_in_range() {
+        let (items, path) = random_log(20);
+        let events = closed_events(items);
+        assert!(events.len() > 1, "found more than one event");
+        let mut log_reader = LogReader::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        for i in 0..events.len()-1 {
+            for j in i..events.len() {
+                let found_events = log_reader.events_in_range(&events[i].start, &events[j].start);
+                assert!(j - i <= found_events.len(), "found at least as many events as expected");
+                for offset in 0..found_events.len() {
+                    let k = i + offset;
+                    assert_eq!(events[k].start, found_events[offset].start, "same start");
+                    assert_eq!(events[k].end, found_events[offset].end, "same end");
+                    assert_eq!(events[k].tags, found_events[offset].tags, "same tags");
+                    assert_eq!(events[k].description, found_events[offset].description, "same description");
+                }
+            }
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_notes_from_end() {
+        let (items, path) = random_log(100);
+        let mut notes = notes(items);
+        notes.reverse();
+        let log_reader = LogReader::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let found_notes = log_reader.notes_from_the_end().collect::<Vec<_>>();
+        assert_eq!(notes.len(), found_notes.len(), "found the right number of notes");
+        for (i, e) in notes.iter().enumerate() {
+            assert_eq!(e.time, found_notes[i].time, "they occur at the same time");
+            assert_eq!(e.tags, found_notes[i].tags, "they have the same tags");
+            assert_eq!(e.description, found_notes[i].description, "they have the same text");
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_notes_from_beginning() {
+        let (items, path) = random_log(100);
+        let notes = notes(items);
+        let log_reader = LogReader::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let found_notes = log_reader.notes_from_the_beginning().collect::<Vec<_>>();
+        assert_eq!(notes.len(), found_notes.len(), "found the right number of notes");
+        for (i, n) in notes.iter().enumerate() {
+            assert_eq!(n.time, found_notes[i].time, "they occur at the same time");
+            assert_eq!(n.tags, found_notes[i].tags, "they have the same tags");
+            assert_eq!(n.description, found_notes[i].description, "they have the same text");
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_events_from_end() {
+        let (items, path) = random_log(100);
+        let mut events = closed_events(items);
+        events.reverse();
+        let log_reader = LogReader::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let found_events = log_reader.events_from_the_end().collect::<Vec<_>>();
+        assert_eq!(events.len(), found_events.len(), "found the right number of events");
+        for (i, e) in events.iter().enumerate() {
+            assert_eq!(e.start, found_events[i].start, "they start at the same time");
+            assert_eq!(e.end, found_events[i].end, "they end at the same time");
+            assert_eq!(e.tags, found_events[i].tags, "they have the same tags");
+            assert_eq!(e.description, found_events[i].description, "they have the same description");
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_events_from_beginning() {
+        let (items, path) = random_log(100);
+        let events = closed_events(items);
+        let log_reader = LogReader::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let found_events = log_reader.events_from_the_beginning().collect::<Vec<_>>();
+        assert_eq!(events.len(), found_events.len(), "found the right number of events");
+        for (i, e) in events.iter().enumerate() {
+            assert_eq!(e.start, found_events[i].start, "they start at the same time");
+            assert_eq!(e.end, found_events[i].end, "they end at the same time");
+            assert_eq!(e.tags, found_events[i].tags, "they have the same tags");
+            assert_eq!(e.description, found_events[i].description, "they have the same description");
+        }
+        std::fs::remove_file(path).unwrap();
     }
 
     fn test_log(length: usize) {
