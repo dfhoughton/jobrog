@@ -5,7 +5,7 @@ extern crate larry;
 extern crate pidgin;
 extern crate regex;
 use crate::util::log_path;
-use chrono::{Datelike, Local, NaiveDate, NaiveDateTime, Timelike};
+use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, Timelike};
 use clap::ArgMatches;
 use larry::Larry;
 use pidgin::{Grammar, Matcher};
@@ -54,7 +54,9 @@ pub fn parse_line(line: &str, offset: usize) -> Item {
                     Item::Event(
                         Event {
                             start: timestamp,
+                            start_overlap: false,
                             end: None,
+                            end_overlap: false,
                             description: description.to_owned(),
                             tags: tags,
                         },
@@ -575,7 +577,9 @@ mod tests {
                 Item::Event(
                     Event {
                         start: time.clone(),
+                        start_overlap: false,
                         end: None,
+                        end_overlap: false,
                         tags: random_tags(),
                         description: random_text(),
                     },
@@ -863,9 +867,9 @@ mod tests {
             Item::Event(
                 Event {
                     start,
-                    end: _,
                     tags,
                     description,
+                    ..
                 },
                 _,
             ) => {
@@ -887,9 +891,9 @@ mod tests {
             Item::Event(
                 Event {
                     start,
-                    end: _,
                     tags,
                     description,
+                    ..
                 },
                 _,
             ) => {
@@ -915,9 +919,9 @@ mod tests {
             Item::Event(
                 Event {
                     start,
-                    end: _,
                     tags,
                     description,
+                    ..
                 },
                 _,
             ) => {
@@ -1315,7 +1319,9 @@ fn tags(tags: &Vec<String>) -> String {
 #[derive(Debug, Clone)]
 pub struct Event {
     pub start: NaiveDateTime,
+    pub start_overlap: bool,
     pub end: Option<NaiveDateTime>,
+    pub end_overlap: bool,
     pub description: String,
     pub tags: Vec<String>,
 }
@@ -1324,18 +1330,102 @@ impl Event {
     pub fn coin(description: String, tags: Vec<String>) -> Event {
         Event {
             start: Local::now().naive_local(),
+            start_overlap: false,
             end: None,
+            end_overlap: false,
             description: description,
             tags: tags,
         }
     }
-    pub fn bounded_time(self, end: Option<NaiveDateTime>) -> Self {
+    fn bounded_time(self, end: Option<NaiveDateTime>) -> Self {
         Event {
             start: self.start,
+            start_overlap: self.start_overlap,
             end: end,
+            end_overlap: self.end_overlap,
             description: self.description,
             tags: self.tags,
         }
+    }
+    pub fn ongoing(&self) -> bool {
+        self.end.is_none()
+    }
+    // the duration of the task in seconds
+    // the second parameter is necessary for ongoing tasks
+    pub fn duration(&self, now: &NaiveDateTime) -> f32 {
+        let end = self.end.as_ref().unwrap_or(now);
+        let delta = (end.timestamp() - self.start.timestamp()) as f32;
+        delta / 60.0
+    }
+    // split an event into two at a time boundary
+    fn split(self, time: NaiveDateTime) -> (Self, Self) {
+        assert!(time < self.start);
+        assert!(self.end.is_none() || self.end.unwrap() > time);
+        let mut start = self;
+        start.end_overlap = true;
+        start.end = Some(time.clone());
+        let mut end = start.clone();
+        end.start = time;
+        end.end_overlap = true;
+        (start, end)
+    }
+    // take a vector of events and convert them into sets not overlapping by day
+    pub fn gather_by_day(events: Vec<Event>, end_date: &NaiveDateTime) -> Vec<Event> {
+        let mut ret = vec![];
+        for mut e in events {
+            if &e.start >= end_date {
+                break;
+            }
+            loop {
+                match e.end.as_ref() {
+                    Some(&time) => {
+                        if time.date() == e.start.date() {
+                            ret.push(e);
+                            break;
+                        }
+                        let split_date = time.date().and_hms(0, 0, 0) + Duration::days(1);
+                        let (e1, e2) = e.split(split_date);
+                        e = e2;
+                        ret.push(e1);
+                    }
+                    None => {
+                        if e.start.date() == end_date.date() {
+                            ret.push(e);
+                            break;
+                        } else {
+                            let split_date = e.start.date().and_hms(0, 0, 0) + Duration::days(1);
+                            let (e1, e2) = e.split(split_date);
+                            e = e2;
+                            ret.push(e1);
+                        }
+                    }
+                }
+            }
+        }
+        ret
+    }
+    fn mergeable(&self, other: &Self) -> bool {
+        self.start.date() == other.start.date() && self.tags == other.tags
+    }
+    fn merge(&mut self, other: Self) {
+        self.description = self.description.clone() + "; " + &other.description;
+        self.end = other.end;
+        self.end_overlap = other.end_overlap;
+    }
+    // like gather_by_day, but it also merges similar events -- similar events must have the same date and tags
+    pub fn gather_by_day_and_merge(events: Vec<Event>, end_date: &NaiveDateTime) -> Vec<Event> {
+        let mut events = Self::gather_by_day(events, end_date);
+        let mut ret = vec![];
+        ret.push(events.remove(0));
+        for e in events {
+            let i = ret.len() - 1;
+            if ret[i].mergeable(&e) {
+                ret[i].merge(e);
+            } else {
+                ret.push(e);
+            }
+        }
+        ret
     }
 }
 

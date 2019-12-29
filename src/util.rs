@@ -1,10 +1,17 @@
+extern crate chrono;
 extern crate clap;
+extern crate colonnade;
 extern crate dirs;
 extern crate regex;
 
+use crate::configure::Configuration;
+use crate::log_items::{Event, Note};
+use chrono::{Datelike, Local, NaiveDate, NaiveDateTime, Timelike};
 use clap::{App, Arg, ArgMatches};
+use colonnade::{Alignment, Colonnade};
 use dirs::home_dir;
 use regex::Regex;
+use std::collections::BTreeMap;
 
 // a collection of arguments used in many subcommands concerned with searching for or filtering events
 pub fn common_search_or_filter_arguments(
@@ -44,7 +51,7 @@ pub fn common_search_or_filter_arguments(
     )
     .arg(
         Arg::with_name("tag-none")
-        .short("n")
+        .short("T")
         .long("tag-none")
         .visible_alias("tn")
         .multiple(true)
@@ -141,4 +148,120 @@ pub fn log_path() -> std::path::PathBuf {
     let mut dir = base_dir();
     dir.push("log");
     dir
+}
+
+fn time_string(this_time: &Option<NaiveDateTime>, last_time: &Option<NaiveDateTime>) -> String {
+    if let Some(this_time) = this_time {
+        let format =
+            if last_time.is_none() || last_time.unwrap().hour() < 13 && this_time.hour() >= 13 {
+                "%l:%M %P"
+            } else {
+                "%l:%M"
+            };
+        format!("{}", this_time.format(format))
+    } else {
+        String::from("ongoing")
+    }
+}
+
+fn duration_string(duration: f32, precision: u8) -> String {
+    format!("{0:.1$}", duration / 60.0, (precision as usize))
+}
+
+fn date_string(date: &NaiveDate, same_year: bool) -> String {
+    if same_year {
+        format!("{}", date.format("%A, %e %B"))
+    } else {
+        format!("{}", date.format("%A, %e %B %Y"))
+    }
+}
+
+pub fn display_events(
+    events: Vec<Event>,
+    start: &NaiveDateTime,
+    end: &NaiveDateTime,
+    configuration: &Configuration,
+) {
+    let mut last_time: Option<NaiveDateTime> = None;
+    let mut last_date: Option<NaiveDate> = None;
+    let mut durations: BTreeMap<String, f32> = BTreeMap::new();
+    let mut total_duration = 0.0;
+    let mut untagged_duration = 0.0;
+    let now = Local::now().naive_local();
+    let same_year = start.year() == end.year();
+    let data: Vec<Vec<String>> = events
+        .iter()
+        .map(|e| {
+            if let Some(&date) = last_date.as_ref() {
+                if date != e.start.date() {
+                    last_time = None;
+                    last_date = Some(e.start.date());
+                }
+            } else {
+                last_date = Some(e.start.date());
+            }
+            let mut parts = Vec::with_capacity(6);
+            parts.push(time_string(&Some(e.start), &last_time));
+            parts.push(String::from("-"));
+            last_time = Some(e.start);
+            parts.push(time_string(&e.end, &last_time));
+            last_time = e.end;
+            let duration = e.duration(&now);
+            parts.push(duration_string(duration, configuration.precision));
+            parts.push(e.tags.join(", "));
+            for tag in e.tags.iter() {
+                *durations.entry(tag.clone()).or_insert(0.0) += duration;
+            }
+            if e.tags.is_empty() {
+                untagged_duration += e.duration(&now);
+            }
+            total_duration += duration;
+            parts.push(e.description.clone());
+            parts
+        })
+        .collect();
+    let mut event_table = Colonnade::new(6, configuration.width()).unwrap();
+    event_table.priority(0).left_margin(2).unwrap();
+    event_table.columns[0].alignment(Alignment::Right);
+    event_table.columns[1].left_margin(1);
+    event_table.columns[2].left_margin(1);
+    event_table.columns[4].priority(1);
+    event_table.columns[5].priority(2);
+
+    last_date = None;
+    for (offset, row) in event_table.macerate(data).unwrap().iter().enumerate() {
+        let date = events[offset].start.date();
+        if last_date.is_none() || last_date.unwrap() != date {
+            println!("{}", date_string(&date, same_year));
+        }
+        for line in row {
+            for (cell_num, (margin, cell)) in line.iter().enumerate() {
+                print!("{}{}", margin, cell);
+            }
+            println!();
+        }
+    }
+    println!();
+
+    let mut tags_table = Colonnade::new(2, configuration.width()).unwrap();
+    tags_table.columns[1].alignment(Alignment::Right);
+    let mut data = vec![vec![
+        String::from("TOTAL HOURS"),
+        duration_string(total_duration, configuration.precision),
+    ]];
+    if untagged_duration > 0.0 {
+        data.push(vec![
+            String::from("UNTAGGED"),
+            duration_string(untagged_duration, configuration.precision),
+        ])
+    }
+    for (tag, duration) in durations.iter() {
+        data.push(vec![
+            tag.clone(),
+            duration_string(*duration, configuration.precision),
+        ]);
+    }
+    for line in tags_table.tabulate(data).unwrap() {
+        println!("{}", line);
+    }
 }
