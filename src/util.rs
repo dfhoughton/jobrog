@@ -163,7 +163,7 @@ fn time_string(this_time: &Option<NaiveDateTime>, last_time: &Option<NaiveDateTi
             };
         format!("{}", this_time.format(format))
     } else {
-        String::from("ongoing")
+        Purple.paint("ongoing").to_string()
     }
 }
 
@@ -184,14 +184,6 @@ pub fn display_notes(notes: Vec<Note>, start: &NaiveDateTime, end: &NaiveDateTim
     let mut last_time: Option<NaiveDateTime> = None;
     let mut last_date: Option<NaiveDate> = None;
     let data: Vec<Vec<String>> = notes.iter().map(|n|{
-        if let Some(&date) = last_date.as_ref() {
-            if date != n.time.date() {
-                last_time = None;
-                last_date = Some(n.time.date());
-            }
-        } else {
-            last_date = Some(n.time.date());
-        }
         let mut parts = Vec::with_capacity(3);
         parts.push(time_string(&Some(n.time), &last_time));
         last_time = Some(n.time);
@@ -204,7 +196,6 @@ pub fn display_notes(notes: Vec<Note>, start: &NaiveDateTime, end: &NaiveDateTim
     note_table.columns[1].priority(1);
     note_table.columns[2].priority(2);
 
-    last_date = None;
     for (offset, row) in note_table.macerate(data).unwrap().iter().enumerate() {
         let date = notes[offset].time.date();
         if last_date.is_none() || last_date.unwrap() != date {

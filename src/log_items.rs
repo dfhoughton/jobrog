@@ -1375,6 +1375,11 @@ impl Event {
     // take a vector of events and convert them into sets not overlapping by day
     pub fn gather_by_day(events: Vec<Event>, end_date: &NaiveDateTime) -> Vec<Event> {
         let mut ret = vec![];
+        let mut end_date = end_date;
+        let now = Local::now().naive_local(); // we assume there are no future events in the log
+        if &now < &end_date {
+            end_date = &now;
+        }
         for mut e in events {
             if &e.start >= end_date {
                 break;
