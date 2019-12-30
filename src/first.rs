@@ -49,6 +49,7 @@ pub fn run(matches: &ArgMatches) {
         } else {
             let start = &event[0].start.clone();
             let now = Local::now().naive_local();
+            let event = Event::gather_by_day(event, &now);
             display_events(event, start, &now, &configuration);
         }
     }
