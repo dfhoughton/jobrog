@@ -6,7 +6,7 @@ extern crate dirs;
 extern crate regex;
 
 use crate::configure::Configuration;
-use crate::log_items::{Done, Event, Item, LogReader, Note};
+use crate::log_items::{Event, Item, LogReader, Note};
 use ansi_term::Colour::{Blue, Cyan, Green, Purple, Red};
 use ansi_term::Style;
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime, Timelike};
@@ -163,7 +163,7 @@ fn time_string(this_time: &Option<NaiveDateTime>, last_time: &Option<NaiveDateTi
             };
         format!("{}", this_time.format(format))
     } else {
-        Purple.paint("ongoing").to_string()
+        String::from("ongoing")
     }
 }
 
