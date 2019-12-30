@@ -496,7 +496,7 @@ impl Configuration {
     fn editor(&mut self, editor: &str) {
         self.editor = Some(String::from(editor));
     }
-    fn config_file() -> PathBuf {
+    pub fn config_file() -> PathBuf {
         let mut path = base_dir();
         path.push("config.ini");
         path

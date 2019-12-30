@@ -3,9 +3,10 @@ extern crate clap;
 extern crate jobrog;
 
 use clap::App;
-use jobrog::{add, configure, done, edit, first, last, note, resume, summary, truncate, when};
+use jobrog::{add, configure, done, edit, first, last, note, resume, summary, truncate, when, util};
 
 fn main() {
+    util::init();
     let mut cli = App::new("testing")
         .version(crate_version!())
         .author(crate_authors!())

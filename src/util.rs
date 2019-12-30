@@ -15,6 +15,8 @@ use colonnade::{Alignment, Colonnade};
 use dirs::home_dir;
 use regex::Regex;
 use std::collections::BTreeMap;
+use std::fs::{create_dir, File};
+use std::io::Write;
 
 // a collection of arguments used in many subcommands concerned with searching for or filtering events
 pub fn common_search_or_filter_arguments(
@@ -417,5 +419,26 @@ pub fn check_for_ongoing_event(reader: &mut Log) {
         let configuration = Configuration::read();
         display_events(event, start, &now, &configuration);
         println!();
+    }
+}
+
+// make sure base directory and its files are present
+pub fn init() {
+    if !base_dir().as_path().exists() {
+        create_dir(base_dir().to_str().unwrap()).expect("could not create base directory");
+    }
+    if !log_path().as_path().exists() {
+        let mut log =
+            File::create(log_path().to_str().unwrap()).expect("could not create log file");
+        log.write_all(b"# job log\n")
+            .expect("could not write comment to log file");
+    }
+    let mut readme_path = base_dir();
+    readme_path.push("README");
+    if !readme_path.as_path().exists() {
+        let mut readme =
+            File::create(readme_path.to_str().unwrap()).expect("could not create README file");
+        readme.write_all(b"\nJob Log\n\nThis directory holds files used by Job Log to maintain\na work log. For more details type\n\n   job --help\n\non the command line.\n\n       
+").expect("could not write README");
     }
 }
