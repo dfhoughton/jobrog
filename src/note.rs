@@ -1,6 +1,8 @@
 extern crate clap;
 
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+use crate::log::{Log, Item};
+use crate::util::{check_for_ongoing_event, describe};
 
 pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
     mast.subcommand(
@@ -44,15 +46,25 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
 }
 
 pub fn run(matches: &ArgMatches) {
-    let note = matches
+    let mut reader = Log::new(None).expect("could not read log");
+    check_for_ongoing_event(&mut reader);
+    let description = matches
         .values_of("note")
         .unwrap()
         .collect::<Vec<&str>>()
         .join(" ");
-    let tags = matches
-        .values_of("tag")
-        .unwrap()
-        .collect::<Vec<&str>>()
-        .join(", ");
-    println!("noted: {}; tags: {}", note, tags);
+    let mut tags: Vec<String> = if let Some(values) = matches.values_of("tag") {
+        values.map(|s| s.to_owned()).collect()
+    } else {
+        vec![]
+    };
+    if matches.is_present("copy-tags") {
+        if let Some(event) = reader.last_event() {
+            for t in event.tags {
+                tags.push(t);
+            }
+        }
+    }
+    let (note, offset) = reader.append_note(description, tags);
+    describe("noted", Item::Note(note, offset));
 }

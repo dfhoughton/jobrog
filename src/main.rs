@@ -3,7 +3,9 @@ extern crate clap;
 extern crate jobrog;
 
 use clap::App;
-use jobrog::{add, configure, done, edit, first, last, note, resume, summary, truncate, when, util};
+use jobrog::{
+    add, configure, done, edit, first, last, note, resume, summary, truncate, util, when,
+};
 
 fn main() {
     util::init();

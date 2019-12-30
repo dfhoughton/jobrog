@@ -103,7 +103,7 @@ impl Log {
     // best is the earliest instance of the line with the timestamp or, barring that, the earliest
     // timestamped line immediately before the timestamp
     pub fn find_line(&mut self, time: &NaiveDateTime) -> Option<Item> {
-        if let Some(start) = self.get_after(0, time) {
+        if let Some(start) = self.get_after(0) {
             let end = self.get_before(self.larry.len() - 1);
             Some(self.narrow_in(time, start, end))
         } else {
@@ -191,16 +191,12 @@ impl Log {
     }
     // get an index-item pair at or before the given time starting at the given index
     // this moves forward from earlier lines to later
-    fn get_after(&mut self, i: usize, time: &NaiveDateTime) -> Option<Item> {
+    fn get_after(&mut self, i: usize) -> Option<Item> {
         for i in i..self.larry.len() {
             let item = parse_line(self.larry.get(i).unwrap(), i);
             let t = item.time();
-            if let Some((t, _)) = t {
-                if t > time {
-                    return None;
-                } else {
-                    return Some(item);
-                }
+            if let Some((_, _)) = t {
+                return Some(item);
             }
         }
         None
@@ -245,10 +241,10 @@ impl Log {
         ptr
     }
     pub fn events_from_the_end(&mut self) -> EventsBefore {
-        EventsBefore::new(self.larry.len() - 1, self)
+        EventsBefore::new(self.larry.len(), self)
     }
     pub fn notes_from_the_end(&mut self) -> NotesBefore {
-        NotesBefore::new(self.larry.len() - 1, self)
+        NotesBefore::new(self.larry.len(), self)
     }
     pub fn events_from_the_beginning(self) -> EventsAfter {
         EventsAfter::new(0, &self)
@@ -287,7 +283,7 @@ impl Log {
         self.events_from_the_end().find(|_| true)
     }
     fn last_timestamp(&mut self) -> Option<NaiveDateTime> {
-        let item = ItemsBefore::new(self.larry.len() - 1, self).find(|i| i.has_time());
+        let item = ItemsBefore::new(self.larry.len(), self).find(|i| i.has_time());
         item.and_then(|i| Some(i.time().unwrap().0.clone()))
     }
     pub fn forgot_to_end_last_event(&mut self) -> bool {
@@ -337,12 +333,15 @@ impl Log {
         if self.needs_newline() {
             writeln!(log, "").expect("could not append to log file");
         }
+        let now = Local::today().naive_local();
         if let Some(ts) = self.last_timestamp() {
-            let now = Local::today().naive_local();
             if ts.date() != now {
                 writeln!(log, "# {}/{}/{}", now.year(), now.month(), now.day())
                     .expect("could not append date comment to log");
             }
+        } else {
+            writeln!(log, "# {}/{}/{}", now.year(), now.month(), now.day())
+                .expect("could not append date comment to log");
         }
         writeln!(log, "{}", &item.to_line()).expect(error_message);
         (item, self.larry.len())
@@ -357,7 +356,7 @@ struct ItemsBefore<'a> {
 impl<'a> ItemsBefore<'a> {
     fn new(offset: usize, reader: &mut Log) -> ItemsBefore {
         ItemsBefore {
-            offset: Some(offset),
+            offset: if offset == 0 { None } else { Some(offset) },
             larry: &mut reader.larry,
         }
     }
@@ -367,9 +366,10 @@ impl<'a> Iterator for ItemsBefore<'a> {
     type Item = Item;
     fn next(&mut self) -> Option<Item> {
         if let Some(o) = self.offset {
-            let line = self.larry.get(o).unwrap();
+            let o2 = o - 1;
+            let line = self.larry.get(o2).unwrap();
             let item = parse_line(line, o);
-            self.offset = if o > 0 { Some(o - 1) } else { None };
+            self.offset = if o2 > 0 { Some(o2) } else { None };
             Some(item)
         } else {
             None
@@ -473,7 +473,7 @@ pub struct EventsBefore<'a> {
 impl<'a> EventsBefore<'a> {
     fn new(offset: usize, reader: &mut Log) -> EventsBefore {
         // the last event may be underway at the offset, so find out when it ends
-        let items_after = ItemsAfter::new(offset + 1, &reader.path);
+        let items_after = ItemsAfter::new(offset, &reader.path);
         let timed_item = items_after
             .filter(|i| match i {
                 Item::Event(_, _) | Item::Done(_, _) => true,
@@ -1427,12 +1427,12 @@ impl Event {
     }
     // split an event into two at a time boundary
     fn split(self, time: NaiveDateTime) -> (Self, Self) {
-        assert!(time < self.start);
+        assert!(time > self.start);
         assert!(self.end.is_none() || self.end.unwrap() > time);
         let mut start = self;
+        let mut end = start.clone();
         start.end_overlap = true;
         start.end = Some(time.clone());
-        let mut end = start.clone();
         end.start = time;
         end.end_overlap = true;
         (start, end)
