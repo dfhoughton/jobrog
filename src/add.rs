@@ -1,5 +1,10 @@
+extern crate chrono;
 extern crate clap;
 
+use crate::configure::Configuration;
+use crate::log_items::{Event, Item, LogReader};
+use crate::util::{describe, display_events, warn};
+use chrono::Local;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 
 pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
@@ -44,10 +49,35 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
 }
 
 pub fn run(matches: &ArgMatches) {
+    let mut reader = LogReader::new(None).expect("could not read log");
+    let configuration = Configuration::read();
+    if reader.forgot_to_end_last_event() {
+        warn("it appears an event begun on a previous day is ongoing");
+        println!();
+        let last_event = reader.last_event().unwrap();
+        let start = &last_event.start.clone();
+        let now = Local::now().naive_local();
+        let event = Event::gather_by_day(vec![last_event], &now);
+        display_events(event, start, &now, &configuration);
+        println!();
+    }
     let description = matches
         .values_of("description")
         .unwrap()
         .collect::<Vec<&str>>()
         .join(" ");
-    println!("added: {}", description);
+    let mut tags: Vec<String> = if let Some(values) = matches.values_of("tag") {
+        values.map(|s| s.to_owned()).collect()
+    } else {
+        vec![]
+    };
+    if matches.is_present("copy-tags") {
+        if let Some(event) = reader.last_event() {
+            for t in event.tags {
+                tags.push(t);
+            }
+        }
+    }
+    let (event, offset) = reader.append_event(description, tags);
+    describe("starting", Item::Event(event, offset));
 }

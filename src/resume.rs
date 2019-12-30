@@ -1,6 +1,5 @@
 extern crate chrono;
 extern crate clap;
-extern crate regex;
 
 use crate::configure::Configuration;
 use crate::log_items::{Event, Filter, Item, LogReader};

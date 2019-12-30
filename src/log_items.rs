@@ -286,6 +286,10 @@ impl LogReader {
         // because Larry caches the line, re-acquiring the last event is cheap
         self.events_from_the_end().find(|_| true)
     }
+    fn last_timestamp(&mut self) -> Option<NaiveDateTime> {
+        let item = ItemsBefore::new(self.larry.len() - 1, self).find(|i| i.has_time());
+        item.and_then(|i| Some(i.time().unwrap().0.clone()))
+    }
     pub fn forgot_to_end_last_event(&mut self) -> bool {
         if let Some(event) = self.last_event() {
             if event.ongoing() {
@@ -332,6 +336,13 @@ impl LogReader {
             .unwrap();
         if self.needs_newline() {
             writeln!(log, "").expect("could not append to log file");
+        }
+        if let Some(ts) = self.last_timestamp() {
+            let now = Local::today().naive_local();
+            if ts.date() != now {
+                writeln!(log, "# {}/{}/{}", now.year(), now.month(), now.day())
+                    .expect("could not append date comment to log");
+            }
         }
         writeln!(log, "{}", &item.to_line()).expect(error_message);
         (item, self.larry.len())
@@ -568,7 +579,6 @@ mod tests {
     use chrono::Duration;
     use rand::Rng;
     use std::fs::File;
-    use std::io::prelude::*;
     use std::io::LineWriter;
     use std::ops::AddAssign;
     use std::str::FromStr;
@@ -1383,7 +1393,9 @@ pub struct Event {
 }
 
 impl Event {
-    pub fn coin(description: String, tags: Vec<String>) -> Event {
+    pub fn coin(description: String, mut tags: Vec<String>) -> Event {
+        tags.sort_unstable();
+        tags.dedup();
         Event {
             start: Local::now().naive_local(),
             start_overlap: false,
@@ -1512,7 +1524,9 @@ pub struct Note {
 }
 
 impl Note {
-    pub fn coin(description: String, tags: Vec<String>) -> Note {
+    pub fn coin(description: String, mut tags: Vec<String>) -> Note {
+        tags.sort_unstable();
+        tags.dedup();
         Note {
             time: Local::now().naive_local(),
             description: description,
