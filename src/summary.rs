@@ -5,7 +5,7 @@ use crate::configure::Configuration;
 use crate::log_items::{Event, Filter, LogReader, Note};
 use crate::util::{common_search_or_filter_arguments, display_events, display_notes, fatal, warn};
 use clap::{App, Arg, ArgMatches, SubCommand};
-use two_timer::{parsable, parse};
+use two_timer::{parsable, parse, Config};
 
 pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
     mast.subcommand(common_search_or_filter_arguments(
@@ -54,10 +54,14 @@ pub fn run(matches: &ArgMatches) {
             date, phrase
         ));
     }
-    if let Ok((start, end, _)) = parse(&phrase, None) {
+    let configuration = Configuration::read();
+    let conf = Config::new()
+        .monday_starts_week(!configuration.sunday_begins_week)
+        .pay_period_start(configuration.start_pay_period)
+        .pay_period_length(configuration.length_pay_period);
+    if let Ok((start, end, _)) = parse(&phrase, Some(conf)) {
         let filter = Filter::new(matches);
         let mut reader = LogReader::new(None).expect("could not read log");
-        let configuration = Configuration::read();
         if matches.is_present("notes") {
             let note: Vec<Note> = reader
                 .notes_in_range(&start, &end)
