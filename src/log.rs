@@ -916,6 +916,18 @@ mod tests {
     }
 
     #[test]
+    fn test_empty_file() {
+        test_log(0);
+    }
+
+    #[test]
+    fn test_100_tiny_files() {
+        for _ in 0..100 {
+            test_log(5);
+        }
+    }
+
+    #[test]
     fn test_10_small_files() {
         for _ in 0..10 {
             test_log(100);
