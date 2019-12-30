@@ -38,7 +38,6 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
         .long("no-merge")
         .help("don't merge contiguous events with the same tags")
         .long_help("By default contiguous events with the same tags are displayed as a single event with the sub-events' descriptions joined with '; '. --no-merge prevents this.")
-        .conflicts_with("merge-all")
     ))
 }
 
@@ -71,15 +70,20 @@ pub fn run(matches: &ArgMatches) {
                 display_notes(note, &start, &end, &configuration);
             }
         } else {
-            let event: Vec<Event> = reader
+            let events = reader
                 .events_in_range(&start, &end)
                 .into_iter()
                 .filter(|n| filter.matches(n))
                 .collect();
-            if event.is_empty() {
+            let events = if matches.is_present("no-merge") {
+                Event::gather_by_day(events, &end)
+            } else {
+                Event::gather_by_day_and_merge(events, &end)
+            };
+            if events.is_empty() {
                 println!("no event found")
             } else {
-                display_events(event, &start, &end, &configuration);
+                display_events(events, &start, &end, &configuration);
             }
         }
     } else {

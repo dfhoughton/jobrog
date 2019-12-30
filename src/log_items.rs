@@ -1408,7 +1408,7 @@ impl Event {
         ret
     }
     fn mergeable(&self, other: &Self) -> bool {
-        self.start.date() == other.start.date() && self.tags == other.tags
+        self.end.is_some() && self.end.unwrap().date() == other.start.date() && self.tags == other.tags
     }
     fn merge(&mut self, other: Self) {
         self.description = self.description.clone() + "; " + &other.description;

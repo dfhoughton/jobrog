@@ -211,6 +211,7 @@ pub fn display_notes(notes: Vec<Note>, start: &NaiveDateTime, end: &NaiveDateTim
             let style = Style::new().fg(Blue);
             println!("{}", style.paint(date_string(&date, same_year)));
         }
+        last_date = Some(date);
         for line in row {
             for (cell_num, (margin, cell)) in line.iter().enumerate() {
                 let mut style = Style::new();
@@ -284,6 +285,7 @@ pub fn display_events(
             let style = Style::new().fg(Blue);
             println!("{}", style.paint(date_string(&date, same_year)));
         }
+        last_date = Some(date);
         for line in row {
             for (cell_num, (margin, cell)) in line.iter().enumerate() {
                 let mut style = Style::new();
