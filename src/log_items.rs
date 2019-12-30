@@ -209,6 +209,9 @@ impl LogReader {
     // this moves in reverse from later lines to earlier
     fn get_before(&mut self, i: usize) -> Item {
         let mut i = i;
+        if i >= self.larry.len() {
+            i = self.larry.len() - 1;
+        }
         loop {
             let item = parse_line(self.larry.get(i).unwrap(), i);
             match item {

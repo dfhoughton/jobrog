@@ -1,7 +1,9 @@
 extern crate clap;
 extern crate two_timer;
 
-use crate::util::common_search_or_filter_arguments;
+use crate::configure::Configuration;
+use crate::log_items::{Event, Filter, LogReader, Note};
+use crate::util::{common_search_or_filter_arguments, display_events, display_notes, fatal, warn};
 use clap::{App, Arg, ArgMatches, SubCommand};
 use two_timer::{parsable, parse};
 
@@ -37,12 +39,6 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
         .help("don't merge contiguous events with the same tags")
         .long_help("By default contiguous events with the same tags are displayed as a single event with the sub-events' descriptions joined with '; '. --no-merge prevents this.")
         .conflicts_with("merge-all")
-    ).arg(
-        Arg::with_name("merge-all")
-        .long("merge-all")
-        .help("merge contiguous events regardless of tags")
-        .long_help("Display contiguous events as single events with merged tag sets and descriptions. Merged descriptions are joined with '; '.")
-        .conflicts_with("no-merge")
     ))
 }
 
@@ -53,5 +49,40 @@ pub fn run(matches: &ArgMatches) {
         .collect::<Vec<&str>>()
         .join(" ");
     let date = matches.value_of("date").unwrap_or(&phrase);
-    println!("when: {}", date);
+    if phrase.len() > 0 && matches.is_present("date") {
+        warn(format!(
+            "--date option '{}' is overriding '{}' as a time expression",
+            date, phrase
+        ));
+    }
+    if let Ok((start, end, _)) = parse(&phrase, None) {
+        let filter = Filter::new(matches);
+        let mut reader = LogReader::new(None).expect("could not read log");
+        let configuration = Configuration::read();
+        if matches.is_present("notes") {
+            let note: Vec<Note> = reader
+                .notes_in_range(&start, &end)
+                .into_iter()
+                .filter(|n| filter.matches(n))
+                .collect();
+            if note.is_empty() {
+                println!("no note found")
+            } else {
+                display_notes(note, &start, &end, &configuration);
+            }
+        } else {
+            let event: Vec<Event> = reader
+                .events_in_range(&start, &end)
+                .into_iter()
+                .filter(|n| filter.matches(n))
+                .collect();
+            if event.is_empty() {
+                println!("no event found")
+            } else {
+                display_events(event, &start, &end, &configuration);
+            }
+        }
+    } else {
+        fatal(format!("could not parse '{}' as a time expression", phrase))
+    }
 }

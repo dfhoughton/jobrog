@@ -7,7 +7,7 @@ extern crate regex;
 
 use crate::configure::Configuration;
 use crate::log_items::{Event, Note};
-use ansi_term::Colour::{Blue, Cyan, Green, Red};
+use ansi_term::Colour::{Blue, Cyan, Green, Red, Purple};
 use ansi_term::Style;
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime, Timelike};
 use clap::{App, Arg, ArgMatches};
@@ -348,4 +348,13 @@ pub fn display_events(
             println!();
         }
     }
+}
+
+pub fn warn<T: ToString>(msg: T) {
+    eprintln!("{}", Purple.paint(msg.to_string()));
+}
+
+pub fn fatal<T: ToString>(msg: T) {
+    eprintln!("ERROR: {}", Red.paint(msg.to_string()));
+    std::process::exit(1);
 }
