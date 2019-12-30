@@ -1,3 +1,4 @@
+extern crate ansi_term;
 extern crate chrono;
 extern crate clap;
 extern crate colonnade;
@@ -6,6 +7,8 @@ extern crate regex;
 
 use crate::configure::Configuration;
 use crate::log_items::{Event, Note};
+use ansi_term::Colour::{Blue, Cyan, Green, Red};
+use ansi_term::Style;
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime, Timelike};
 use clap::{App, Arg, ArgMatches};
 use colonnade::{Alignment, Colonnade};
@@ -176,6 +179,52 @@ fn date_string(date: &NaiveDate, same_year: bool) -> String {
     }
 }
 
+pub fn display_notes(notes: Vec<Note>, start: &NaiveDateTime, end: &NaiveDateTime, configuration: &Configuration) {
+    let same_year = start.year() == end.year();
+    let mut last_time: Option<NaiveDateTime> = None;
+    let mut last_date: Option<NaiveDate> = None;
+    let data: Vec<Vec<String>> = notes.iter().map(|n|{
+        if let Some(&date) = last_date.as_ref() {
+            if date != n.time.date() {
+                last_time = None;
+                last_date = Some(n.time.date());
+            }
+        } else {
+            last_date = Some(n.time.date());
+        }
+        let mut parts = Vec::with_capacity(3);
+        parts.push(time_string(&Some(n.time), &last_time));
+        last_time = Some(n.time);
+        parts.push(n.tags.join(", "));
+        parts.push(n.description.clone());
+        parts
+    }).collect();
+    let mut note_table = Colonnade::new(3, configuration.width()).unwrap();
+    note_table.priority(0).left_margin(2).unwrap();
+    note_table.columns[1].priority(1);
+    note_table.columns[2].priority(2);
+
+    last_date = None;
+    for (offset, row) in note_table.macerate(data).unwrap().iter().enumerate() {
+        let date = notes[offset].time.date();
+        if last_date.is_none() || last_date.unwrap() != date {
+            let style = Style::new().fg(Blue);
+            println!("{}", style.paint(date_string(&date, same_year)));
+        }
+        for line in row {
+            for (cell_num, (margin, cell)) in line.iter().enumerate() {
+                let mut style = Style::new();
+                match cell_num {
+                    1 => { style = style.fg(Green); ()},
+                    _ => (),
+                }
+                print!("{}{}", margin, style.paint(cell));
+            }
+            println!();
+        }
+    }
+}
+
 pub fn display_events(
     events: Vec<Event>,
     start: &NaiveDateTime,
@@ -232,11 +281,24 @@ pub fn display_events(
     for (offset, row) in event_table.macerate(data).unwrap().iter().enumerate() {
         let date = events[offset].start.date();
         if last_date.is_none() || last_date.unwrap() != date {
-            println!("{}", date_string(&date, same_year));
+            let style = Style::new().fg(Blue);
+            println!("{}", style.paint(date_string(&date, same_year)));
         }
         for line in row {
             for (cell_num, (margin, cell)) in line.iter().enumerate() {
-                print!("{}{}", margin, cell);
+                let mut style = Style::new();
+                match cell_num {
+                    3 => {
+                        style = style.fg(Cyan);
+                        ()
+                    }
+                    4 => {
+                        style = style.fg(Green);
+                        ()
+                    }
+                    _ => (),
+                }
+                print!("{}{}", margin, style.paint(cell));
             }
             println!();
         }
@@ -261,7 +323,29 @@ pub fn display_events(
             duration_string(*duration, configuration.precision),
         ]);
     }
-    for line in tags_table.tabulate(data).unwrap() {
-        println!("{}", line);
+    for (offset, row) in tags_table.macerate(data).unwrap().iter().enumerate() {
+        let mut style = Style::new();
+        match offset {
+            0 => {
+                style = style.fg(Red);
+                ()
+            }
+            1 => {
+                if untagged_duration > 0.0 {
+                    style = style.fg(Red);
+                }
+            }
+            _ => (),
+        }
+        for line in row {
+            for (cell_num, (margin, cell)) in line.iter().enumerate() {
+                if cell_num == 0 {
+                    print!("{}{}", margin, style.paint(cell));
+                } else {
+                    print!("{}{}", margin, cell);
+                }
+            }
+            println!();
+        }
     }
 }
