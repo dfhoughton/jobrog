@@ -1,10 +1,8 @@
 extern crate chrono;
 extern crate clap;
 
-use crate::configure::Configuration;
-use crate::log::{Event, Item, Log};
-use crate::util::{check_for_ongoing_event, describe, warn};
-use chrono::Local;
+use crate::log::{Item, Log};
+use crate::util::{check_for_ongoing_event, describe};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 
 pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
