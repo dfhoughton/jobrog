@@ -6,7 +6,7 @@ extern crate dirs;
 extern crate regex;
 
 use crate::configure::Configuration;
-use crate::log::{Event, Item, LogReader, Note};
+use crate::log::{Event, Item, Log, Note};
 use ansi_term::Colour::{Blue, Cyan, Green, Purple, Red};
 use ansi_term::Style;
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime, Timelike};
@@ -406,7 +406,7 @@ pub fn describe(action: &str, item: Item) {
 }
 
 // this is really a check for ongoing *multi-day* events
-pub fn check_for_ongoing_event(reader: &mut LogReader) {
+pub fn check_for_ongoing_event(reader: &mut Log) {
     if reader.forgot_to_end_last_event() {
         warn("it appears an event begun on a previous day is ongoing");
         println!();

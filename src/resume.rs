@@ -2,7 +2,7 @@ extern crate chrono;
 extern crate clap;
 
 use crate::configure::Configuration;
-use crate::log::{Event, Filter, Item, LogReader};
+use crate::log::{Event, Filter, Item, Log};
 use crate::util::{
     check_for_ongoing_event, common_search_or_filter_arguments, describe, display_events, warn,
 };
@@ -21,7 +21,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
 
 pub fn run(matches: &ArgMatches) {
     let filter = Filter::new(matches);
-    let mut reader = LogReader::new(None).expect("could not read log");
+    let mut reader = Log::new(None).expect("could not read log");
     check_for_ongoing_event(&mut reader);
     let event: Vec<Event> = reader
         .events_from_the_end()

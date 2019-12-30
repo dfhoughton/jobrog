@@ -83,17 +83,17 @@ pub fn parse_line(line: &str, offset: usize) -> Item {
     }
 }
 
-pub struct LogReader {
+pub struct Log {
     pub larry: Larry,
     pub path: String,
 }
 
-impl LogReader {
-    pub fn new(log: Option<PathBuf>) -> Result<LogReader, std::io::Error> {
+impl Log {
+    pub fn new(log: Option<PathBuf>) -> Result<Log, std::io::Error> {
         let log = log.unwrap_or(log_path());
         let path = log.as_path().to_str();
         Larry::new(log.as_path()).and_then(|log| {
-            Ok(LogReader {
+            Ok(Log {
                 larry: log,
                 path: path.unwrap().to_owned(),
             })
@@ -355,7 +355,7 @@ struct ItemsBefore<'a> {
 }
 
 impl<'a> ItemsBefore<'a> {
-    fn new(offset: usize, reader: &mut LogReader) -> ItemsBefore {
+    fn new(offset: usize, reader: &mut Log) -> ItemsBefore {
         ItemsBefore {
             offset: Some(offset),
             larry: &mut reader.larry,
@@ -412,7 +412,7 @@ pub struct NotesBefore<'a> {
 }
 
 impl<'a> NotesBefore<'a> {
-    fn new(offset: usize, reader: &mut LogReader) -> NotesBefore {
+    fn new(offset: usize, reader: &mut Log) -> NotesBefore {
         NotesBefore {
             item_iterator: ItemsBefore::new(offset, reader),
         }
@@ -441,7 +441,7 @@ pub struct NotesAfter {
 }
 
 impl NotesAfter {
-    fn new(offset: usize, reader: &LogReader) -> NotesAfter {
+    fn new(offset: usize, reader: &Log) -> NotesAfter {
         NotesAfter {
             item_iterator: ItemsAfter::new(offset, &reader.path),
         }
@@ -471,7 +471,7 @@ pub struct EventsBefore<'a> {
 }
 
 impl<'a> EventsBefore<'a> {
-    fn new(offset: usize, reader: &mut LogReader) -> EventsBefore {
+    fn new(offset: usize, reader: &mut Log) -> EventsBefore {
         // the last event may be underway at the offset, so find out when it ends
         let items_after = ItemsAfter::new(offset + 1, &reader.path);
         let timed_item = items_after
@@ -528,7 +528,7 @@ pub struct EventsAfter {
 }
 
 impl EventsAfter {
-    fn new(offset: usize, reader: &LogReader) -> EventsAfter {
+    fn new(offset: usize, reader: &Log) -> EventsAfter {
         EventsAfter {
             next_item: None,
             item_iterator: ItemsAfter::new(offset, &reader.path),
@@ -730,7 +730,7 @@ mod tests {
         let (items, path) = random_log(100);
         let notes = notes(items);
         assert!(notes.len() > 1, "found more than one note");
-        let mut log_reader = LogReader::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let mut log_reader = Log::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
         for i in 0..notes.len() - 1 {
             for j in i..notes.len() {
                 let found_notes = log_reader.notes_in_range(&notes[i].time, &notes[j].time);
@@ -757,7 +757,7 @@ mod tests {
         let (items, path) = random_log(20);
         let events = closed_events(items);
         assert!(events.len() > 1, "found more than one event");
-        let mut log_reader = LogReader::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let mut log_reader = Log::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
         for i in 0..events.len() - 1 {
             for j in i..events.len() {
                 let found_events = log_reader.events_in_range(&events[i].start, &events[j].start);
@@ -785,7 +785,7 @@ mod tests {
         let (items, path) = random_log(100);
         let mut notes = notes(items);
         notes.reverse();
-        let mut log_reader = LogReader::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let mut log_reader = Log::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
         let found_notes = log_reader.notes_from_the_end().collect::<Vec<_>>();
         assert_eq!(
             notes.len(),
@@ -807,7 +807,7 @@ mod tests {
     fn test_notes_from_beginning() {
         let (items, path) = random_log(100);
         let notes = notes(items);
-        let log_reader = LogReader::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let log_reader = Log::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
         let found_notes = log_reader.notes_from_the_beginning().collect::<Vec<_>>();
         assert_eq!(
             notes.len(),
@@ -830,7 +830,7 @@ mod tests {
         let (items, path) = random_log(100);
         let mut events = closed_events(items);
         events.reverse();
-        let mut log_reader = LogReader::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let mut log_reader = Log::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
         let found_events = log_reader.events_from_the_end().collect::<Vec<_>>();
         assert_eq!(
             events.len(),
@@ -856,7 +856,7 @@ mod tests {
     fn test_events_from_beginning() {
         let (items, path) = random_log(100);
         let events = closed_events(items);
-        let log_reader = LogReader::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let log_reader = Log::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
         let found_events = log_reader.events_from_the_beginning().collect::<Vec<_>>();
         assert_eq!(
             events.len(),
@@ -883,7 +883,7 @@ mod tests {
         if items.is_empty() {
             println!("empty file; skipping...");
         } else {
-            let mut log_reader = LogReader::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+            let mut log_reader = Log::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
             let mut last_timed_item: Option<Item> = None;
             for item in items {
                 let (time, offset) = item.time().unwrap();

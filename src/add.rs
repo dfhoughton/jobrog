@@ -2,7 +2,7 @@ extern crate chrono;
 extern crate clap;
 
 use crate::configure::Configuration;
-use crate::log::{Event, Item, LogReader};
+use crate::log::{Event, Item, Log};
 use crate::util::{check_for_ongoing_event, describe, warn};
 use chrono::Local;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
@@ -49,7 +49,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
 }
 
 pub fn run(matches: &ArgMatches) {
-    let mut reader = LogReader::new(None).expect("could not read log");
+    let mut reader = Log::new(None).expect("could not read log");
     check_for_ongoing_event(&mut reader);
     let description = matches
         .values_of("description")
