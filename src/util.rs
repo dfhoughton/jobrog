@@ -6,8 +6,8 @@ extern crate dirs;
 extern crate regex;
 
 use crate::configure::Configuration;
-use crate::log_items::{Event, Note};
-use ansi_term::Colour::{Blue, Cyan, Green, Red, Purple};
+use crate::log_items::{Done, Event, Item, Note};
+use ansi_term::Colour::{Blue, Cyan, Green, Purple, Red};
 use ansi_term::Style;
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime, Timelike};
 use clap::{App, Arg, ArgMatches};
@@ -179,18 +179,26 @@ fn date_string(date: &NaiveDate, same_year: bool) -> String {
     }
 }
 
-pub fn display_notes(notes: Vec<Note>, start: &NaiveDateTime, end: &NaiveDateTime, configuration: &Configuration) {
+pub fn display_notes(
+    notes: Vec<Note>,
+    start: &NaiveDateTime,
+    end: &NaiveDateTime,
+    configuration: &Configuration,
+) {
     let same_year = start.year() == end.year();
     let mut last_time: Option<NaiveDateTime> = None;
     let mut last_date: Option<NaiveDate> = None;
-    let data: Vec<Vec<String>> = notes.iter().map(|n|{
-        let mut parts = Vec::with_capacity(3);
-        parts.push(time_string(&Some(n.time), &last_time));
-        last_time = Some(n.time);
-        parts.push(n.tags.join(", "));
-        parts.push(n.description.clone());
-        parts
-    }).collect();
+    let data: Vec<Vec<String>> = notes
+        .iter()
+        .map(|n| {
+            let mut parts = Vec::with_capacity(3);
+            parts.push(time_string(&Some(n.time), &last_time));
+            last_time = Some(n.time);
+            parts.push(n.tags.join(", "));
+            parts.push(n.description.clone());
+            parts
+        })
+        .collect();
     let mut note_table = Colonnade::new(3, configuration.width()).unwrap();
     note_table.priority(0).left_margin(2).unwrap();
     note_table.columns[1].priority(1);
@@ -207,7 +215,10 @@ pub fn display_notes(notes: Vec<Note>, start: &NaiveDateTime, end: &NaiveDateTim
             for (cell_num, (margin, cell)) in line.iter().enumerate() {
                 let mut style = Style::new();
                 match cell_num {
-                    1 => { style = style.fg(Green); ()},
+                    1 => {
+                        style = style.fg(Green);
+                        ()
+                    }
                     _ => (),
                 }
                 print!("{}{}", margin, style.paint(cell));
@@ -350,4 +361,46 @@ pub fn warn<T: ToString>(msg: T) {
 pub fn fatal<T: ToString>(msg: T) {
     eprintln!("ERROR: {}", Red.paint(msg.to_string()));
     std::process::exit(1);
+}
+
+pub fn describe(action: &str, item: Item) {
+    let mut s = action.to_owned();
+    s += " ";
+    match item {
+        Item::Event(
+            Event {
+                description, tags, ..
+            },
+            _,
+        ) => {
+            s += &description;
+            s += " ";
+            if tags.is_empty() {
+                s += &Blue.paint("no tags").to_string();
+            } else {
+                s += "(";
+                s += &Blue.paint(tags.join(", ")).to_string();
+                s += ")"
+            }
+        }
+        Item::Note(
+            Note {
+                description, tags, ..
+            },
+            _,
+        ) => {
+            s += &description;
+            s += " ";
+            if tags.is_empty() {
+                s += &Blue.paint("no tags").to_string();
+            } else {
+                s += "(";
+                s += &Blue.paint(tags.join(", ")).to_string();
+                s += ")"
+            }
+        }
+        Item::Done(d, _) => s += &format!("{}", d.0.format("at %l:%M %P")),
+        _ => (),
+    }
+    println!("{}", s)
 }

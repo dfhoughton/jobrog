@@ -23,7 +23,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
 
 pub fn run(matches: &ArgMatches) {
     let filter = Filter::new(matches);
-    let reader = LogReader::new(None).expect("could not read log");
+    let mut reader = LogReader::new(None).expect("could not read log");
     let configuration = Configuration::read();
     if matches.is_present("notes") {
         let note: Vec<Note> = reader

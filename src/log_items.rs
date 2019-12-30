@@ -10,8 +10,8 @@ use clap::ArgMatches;
 use larry::Larry;
 use pidgin::{Grammar, Matcher};
 use regex::{Regex, RegexSet};
-use std::fs::File;
-use std::io::{BufRead, BufReader, Lines};
+use std::fs::{File, OpenOptions};
+use std::io::{BufRead, BufReader, Lines, Write};
 use std::path::PathBuf;
 
 lazy_static! {
@@ -244,10 +244,10 @@ impl LogReader {
         }
         ptr
     }
-    pub fn events_from_the_end(self) -> EventsBefore {
+    pub fn events_from_the_end(&mut self) -> EventsBefore {
         EventsBefore::new(self.larry.len() - 1, self)
     }
-    pub fn notes_from_the_end(self) -> NotesBefore {
+    pub fn notes_from_the_end(&mut self) -> NotesBefore {
         NotesBefore::new(self.larry.len() - 1, self)
     }
     pub fn events_from_the_beginning(self) -> EventsAfter {
@@ -282,24 +282,77 @@ impl LogReader {
         }
         ret
     }
+    pub fn last_event(&mut self) -> Option<Event> {
+        // because Larry caches the line, re-acquiring the last event is cheap
+        self.events_from_the_end().find(|_| true)
+    }
+    pub fn forgot_to_end_last_event(&mut self) -> bool {
+        if let Some(event) = self.last_event() {
+            if event.ongoing() {
+                let now = Local::now().naive_local();
+                event.start.date() != now.date()
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+    fn needs_newline(&mut self) -> bool {
+        if self.larry.len() > 0 {
+            let last_line = self
+                .larry
+                .get(self.larry.len() - 1)
+                .expect("could not obtain last line of log");
+            let last_char = last_line.bytes().last().unwrap();
+            !(last_char == 0x0D || last_char == 0x0A)
+        } else {
+            false
+        }
+    }
+    // this method devours the reader because it invalidates the information cached in larry
+    pub fn append_event(self, description: String, tags: Vec<String>) -> (Event, usize) {
+        let event = Event::coin(description, tags);
+        self.append_to_log(event, "could not append event to log")
+    }
+    // this method devours the reader because it invalidates the information cached in larry
+    pub fn append_note(self, description: String, tags: Vec<String>) -> (Note, usize) {
+        let note = Note::coin(description, tags);
+        self.append_to_log(note, "could not append note to log")
+    }
+    pub fn close_event(self) -> (Done, usize) {
+        let done = Done(Local::now().naive_local());
+        self.append_to_log(done, "could not append DONE line to log")
+    }
+    fn append_to_log<T: LogLine>(mut self, item: T, error_message: &str) -> (T, usize) {
+        let mut log = OpenOptions::new()
+            .write(true)
+            .append(true)
+            .open(&self.path)
+            .unwrap();
+        if self.needs_newline() {
+            writeln!(log, "").expect("could not append to log file");
+        }
+        writeln!(log, "{}", &item.to_line()).expect(error_message);
+        (item, self.larry.len())
+    }
 }
 
-struct ItemsBefore {
+struct ItemsBefore<'a> {
     offset: Option<usize>,
-    larry: Larry,
+    larry: &'a mut Larry,
 }
 
-impl ItemsBefore {
-    fn new(offset: usize, reader: LogReader) -> ItemsBefore {
-        let larry = reader.larry;
+impl<'a> ItemsBefore<'a> {
+    fn new(offset: usize, reader: &mut LogReader) -> ItemsBefore {
         ItemsBefore {
             offset: Some(offset),
-            larry,
+            larry: &mut reader.larry,
         }
     }
 }
 
-impl Iterator for ItemsBefore {
+impl<'a> Iterator for ItemsBefore<'a> {
     type Item = Item;
     fn next(&mut self) -> Option<Item> {
         if let Some(o) = self.offset {
@@ -343,19 +396,19 @@ impl Iterator for ItemsAfter {
     }
 }
 
-pub struct NotesBefore {
-    item_iterator: ItemsBefore,
+pub struct NotesBefore<'a> {
+    item_iterator: ItemsBefore<'a>,
 }
 
-impl NotesBefore {
-    fn new(offset: usize, reader: LogReader) -> NotesBefore {
+impl<'a> NotesBefore<'a> {
+    fn new(offset: usize, reader: &mut LogReader) -> NotesBefore {
         NotesBefore {
             item_iterator: ItemsBefore::new(offset, reader),
         }
     }
 }
 
-impl Iterator for NotesBefore {
+impl<'a> Iterator for NotesBefore<'a> {
     type Item = Note;
     fn next(&mut self) -> Option<Note> {
         loop {
@@ -401,13 +454,13 @@ impl Iterator for NotesAfter {
     }
 }
 
-pub struct EventsBefore {
+pub struct EventsBefore<'a> {
     last_time: Option<NaiveDateTime>,
-    item_iterator: ItemsBefore,
+    item_iterator: ItemsBefore<'a>,
 }
 
-impl EventsBefore {
-    fn new(offset: usize, reader: LogReader) -> EventsBefore {
+impl<'a> EventsBefore<'a> {
+    fn new(offset: usize, reader: &mut LogReader) -> EventsBefore {
         // the last event may be underway at the offset, so find out when it ends
         let items_after = ItemsAfter::new(offset + 1, &reader.path);
         let timed_item = items_after
@@ -428,7 +481,7 @@ impl EventsBefore {
     }
 }
 
-impl Iterator for EventsBefore {
+impl<'a> Iterator for EventsBefore<'a> {
     type Item = Event;
     fn next(&mut self) -> Option<Event> {
         let mut last_time = self.last_time;
@@ -722,7 +775,7 @@ mod tests {
         let (items, path) = random_log(100);
         let mut notes = notes(items);
         notes.reverse();
-        let log_reader = LogReader::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let mut log_reader = LogReader::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
         let found_notes = log_reader.notes_from_the_end().collect::<Vec<_>>();
         assert_eq!(
             notes.len(),
@@ -767,7 +820,7 @@ mod tests {
         let (items, path) = random_log(100);
         let mut events = closed_events(items);
         events.reverse();
-        let log_reader = LogReader::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let mut log_reader = LogReader::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
         let found_events = log_reader.events_from_the_end().collect::<Vec<_>>();
         assert_eq!(
             events.len(),
@@ -1413,7 +1466,9 @@ impl Event {
         ret
     }
     fn mergeable(&self, other: &Self) -> bool {
-        self.end.is_some() && self.end.unwrap().date() == other.start.date() && self.tags == other.tags
+        self.end.is_some()
+            && self.end.unwrap().date() == other.start.date()
+            && self.tags == other.tags
     }
     fn merge(&mut self, other: Self) {
         self.description = self.description.clone() + "; " + &other.description;
@@ -1424,7 +1479,7 @@ impl Event {
     pub fn gather_by_day_and_merge(events: Vec<Event>, end_date: &NaiveDateTime) -> Vec<Event> {
         let mut events = Self::gather_by_day(events, end_date);
         if events.is_empty() {
-            return events
+            return events;
         }
         let mut ret = vec![];
         ret.push(events.remove(0));
@@ -1476,7 +1531,7 @@ impl Searchable for Note {
 }
 
 #[derive(Debug, Clone)]
-pub struct Done(NaiveDateTime);
+pub struct Done(pub NaiveDateTime);
 
 impl Done {
     pub fn coin() -> Done {
