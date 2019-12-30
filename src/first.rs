@@ -3,7 +3,7 @@ extern crate clap;
 extern crate regex;
 
 use crate::configure::Configuration;
-use crate::log_items::{Event, Filter, LogReader, Note};
+use crate::log::{Event, Filter, LogReader, Note};
 use crate::util::{common_search_or_filter_arguments, display_events, display_notes, warn};
 use chrono::Local;
 use clap::{App, ArgMatches, SubCommand};

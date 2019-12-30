@@ -2,8 +2,8 @@ extern crate chrono;
 extern crate clap;
 
 use crate::configure::Configuration;
-use crate::log_items::{Event, Item, LogReader};
-use crate::util::{check_for_ongoing_event, describe, display_events, warn};
+use crate::log::{Event, Item, LogReader};
+use crate::util::{check_for_ongoing_event, describe, warn};
 use chrono::Local;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 

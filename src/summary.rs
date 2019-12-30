@@ -2,8 +2,11 @@ extern crate clap;
 extern crate two_timer;
 
 use crate::configure::Configuration;
-use crate::log_items::{Event, Filter, LogReader, Note};
-use crate::util::{common_search_or_filter_arguments, display_events, display_notes, fatal, warn, check_for_ongoing_event};
+use crate::log::{Event, Filter, LogReader, Note};
+use crate::util::{
+    check_for_ongoing_event, common_search_or_filter_arguments, display_events, display_notes,
+    fatal, warn,
+};
 use clap::{App, Arg, ArgMatches, SubCommand};
 use two_timer::{parsable, parse, Config};
 

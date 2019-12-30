@@ -2,7 +2,7 @@ extern crate chrono;
 extern crate clap;
 
 use crate::configure::Configuration;
-use crate::log_items::{Event, Filter, Item, LogReader};
+use crate::log::{Event, Filter, Item, LogReader};
 use crate::util::{
     check_for_ongoing_event, common_search_or_filter_arguments, describe, display_events, warn,
 };
