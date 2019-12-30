@@ -1418,6 +1418,9 @@ impl Event {
     // like gather_by_day, but it also merges similar events -- similar events must have the same date and tags
     pub fn gather_by_day_and_merge(events: Vec<Event>, end_date: &NaiveDateTime) -> Vec<Event> {
         let mut events = Self::gather_by_day(events, end_date);
+        if events.is_empty() {
+            return events
+        }
         let mut ret = vec![];
         ret.push(events.remove(0));
         for e in events {

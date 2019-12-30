@@ -4,7 +4,7 @@ extern crate chrono;
 
 use crate::configure::Configuration;
 use crate::log_items::{Event, Filter, LogReader, Note};
-use crate::util::{common_search_or_filter_arguments, display_events, display_notes};
+use crate::util::{common_search_or_filter_arguments, display_events, display_notes, warn};
 use chrono::Local;
 use clap::{App, ArgMatches, SubCommand};
 
@@ -32,7 +32,7 @@ pub fn run(matches: &ArgMatches) {
             .take(1)
             .collect();
         if note.is_empty() {
-            println!("no note found")
+            warn("no note found")
         } else {
             let start = &note[0].time.clone();
             let now = Local::now().naive_local();
@@ -45,7 +45,7 @@ pub fn run(matches: &ArgMatches) {
             .take(1)
             .collect();
         if event.is_empty() {
-            println!("no event found")
+            warn("no event found")
         } else {
             let start = &event[0].start.clone();
             let now = Local::now().naive_local();

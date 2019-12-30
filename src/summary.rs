@@ -65,7 +65,7 @@ pub fn run(matches: &ArgMatches) {
                 .filter(|n| filter.matches(n))
                 .collect();
             if note.is_empty() {
-                println!("no note found")
+                warn("no note found")
             } else {
                 display_notes(note, &start, &end, &configuration);
             }
@@ -81,7 +81,7 @@ pub fn run(matches: &ArgMatches) {
                 Event::gather_by_day_and_merge(events, &end)
             };
             if events.is_empty() {
-                println!("no event found")
+                warn("no event found")
             } else {
                 display_events(events, &start, &end, &configuration);
             }
