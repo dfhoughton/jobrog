@@ -3,7 +3,7 @@ extern crate clap;
 
 use crate::configure::Configuration;
 use crate::log_items::{Event, Item, LogReader};
-use crate::util::{describe, display_events, warn};
+use crate::util::{check_for_ongoing_event, describe, display_events, warn};
 use chrono::Local;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 
@@ -50,17 +50,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
 
 pub fn run(matches: &ArgMatches) {
     let mut reader = LogReader::new(None).expect("could not read log");
-    let configuration = Configuration::read();
-    if reader.forgot_to_end_last_event() {
-        warn("it appears an event begun on a previous day is ongoing");
-        println!();
-        let last_event = reader.last_event().unwrap();
-        let start = &last_event.start.clone();
-        let now = Local::now().naive_local();
-        let event = Event::gather_by_day(vec![last_event], &now);
-        display_events(event, start, &now, &configuration);
-        println!();
-    }
+    check_for_ongoing_event(&mut reader);
     let description = matches
         .values_of("description")
         .unwrap()

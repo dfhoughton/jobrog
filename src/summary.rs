@@ -3,7 +3,7 @@ extern crate two_timer;
 
 use crate::configure::Configuration;
 use crate::log_items::{Event, Filter, LogReader, Note};
-use crate::util::{common_search_or_filter_arguments, display_events, display_notes, fatal, warn};
+use crate::util::{common_search_or_filter_arguments, display_events, display_notes, fatal, warn, check_for_ongoing_event};
 use clap::{App, Arg, ArgMatches, SubCommand};
 use two_timer::{parsable, parse, Config};
 
@@ -62,6 +62,7 @@ pub fn run(matches: &ArgMatches) {
     if let Ok((start, end, _)) = parse(&phrase, Some(conf)) {
         let filter = Filter::new(matches);
         let mut reader = LogReader::new(None).expect("could not read log");
+        check_for_ongoing_event(&mut reader);
         if matches.is_present("notes") {
             let note: Vec<Note> = reader
                 .notes_in_range(&start, &end)
