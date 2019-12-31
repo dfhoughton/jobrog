@@ -361,7 +361,7 @@ pub fn warn<T: ToString>(msg: T) {
 }
 
 pub fn fatal<T: ToString>(msg: T) {
-    eprintln!("ERROR: {}", Red.paint(msg.to_string()));
+    eprintln!("{} {}", Red.paint("ERROR:"), msg.to_string());
     std::process::exit(1);
 }
 
