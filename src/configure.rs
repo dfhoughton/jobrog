@@ -15,6 +15,7 @@ use clap::{App, Arg, ArgMatches, SubCommand};
 use colonnade::{Alignment, Colonnade};
 use ini::Ini;
 use regex::Regex;
+use std::env;
 use std::path::PathBuf;
 use two_timer::{parsable, parse, Config};
 
@@ -126,7 +127,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                 Arg::with_name("editor")
                 .long("editor")
                 .help("text editor to use when manually editing the log")
-                .long_help("A text editor that the edit command will invoke. E.g., /usr/bin/vim.")
+                .long_help("A text editor that the edit command will invoke. E.g., /usr/bin/vim. If no editor is set, job falls back to the environment variables VISUAL and EDITOR in that order. If there is still no editor, you cannot use the edit command to edit the log.")
                 .value_name("path")
             )
             .arg(
@@ -305,6 +306,7 @@ pub fn run(matches: &ArgMatches) {
         conf.write()
     }
     if matches.is_present("list") {
+        let mut footnotes: Vec<String> = Vec::new();
         if did_something {
             println!("");
         } else {
@@ -312,10 +314,20 @@ pub fn run(matches: &ArgMatches) {
         }
         let attributes = vec![
             vec![String::from("day-length"), format!("{}", conf.day_length)],
-            vec![
-                String::from("editor"),
-                format!("{}", conf.editor.as_ref().unwrap_or(&String::from(""))),
-            ],
+            vec![String::from("editor"), {
+                match conf.effective_editor() {
+                    Some((mut editor, source)) => {
+                        if let Some(source) = source {
+                            for _ in 0..footnotes.len() + 1 {
+                                editor.push_str("*");
+                            }
+                            footnotes.push(source);
+                        }
+                        editor
+                    }
+                    _ => String::from(""),
+                }
+            }],
             vec![
                 String::from("length-pay-period"),
                 format!("{}", conf.length_pay_period),
@@ -354,6 +366,18 @@ pub fn run(matches: &ArgMatches) {
             if i % 2 == 1 {
                 println!("{}", odd_line.paint(line))
             } else {
+                println!("{}", line);
+            }
+        }
+        if !footnotes.is_empty() {
+            println!("\nenvironment variable sources:");
+            let data : Vec<Vec<String>> = footnotes.into_iter().enumerate().map(|(i, s)| {
+                let asterisks = std::iter::repeat("*").take(i + 1).collect::<String>();
+                vec![asterisks, s]
+            }).collect();
+            table = Colonnade::new(2, conf.width()).unwrap();
+            table.columns[0].alignment(Alignment::Right).left_margin(2);
+            for line in table.tabulate(data).expect("data too wide") {
                 println!("{}", line);
             }
         }
@@ -495,6 +519,24 @@ impl Configuration {
     }
     fn editor(&mut self, editor: &str) {
         self.editor = Some(String::from(editor));
+    }
+    // returns value and its environment variable source, if any
+    pub fn effective_editor(&self) -> Option<(String, Option<String>)> {
+        if self.editor.is_some() {
+            Some((self.editor.as_ref().unwrap().to_string(), None))
+        } else {
+            let mut var = String::from("VISUAL");
+            match env::var(&var) {
+                Ok(s) => Some((s, Some(var))),
+                _ => {
+                    var = String::from("EDITOR");
+                    match env::var(&var) {
+                        Ok(s) => Some((s, Some(var))),
+                        _ => None,
+                    }
+                }
+            }
+        }
     }
     pub fn config_file() -> PathBuf {
         let mut path = base_dir();
