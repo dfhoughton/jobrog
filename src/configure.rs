@@ -127,7 +127,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                 Arg::with_name("editor")
                 .long("editor")
                 .help("text editor to use when manually editing the log")
-                .long_help("A text editor that the edit command will invoke. E.g., /usr/bin/vim. If no editor is set, job falls back to the environment variables VISUAL and EDITOR in that order. If there is still no editor, you cannot use the edit command to edit the log.")
+                .long_help("A text editor that the edit command will invoke. E.g., /usr/bin/vim. If no editor is set, job falls back to the environment variables VISUAL and EDITOR in that order. If there is still no editor, you cannot use the edit command to edit the log. Note, whatever editor you use must be invocable from the shell as <editor> <file>.")
                 .value_name("path")
             )
             .arg(
