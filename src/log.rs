@@ -659,7 +659,14 @@ mod tests {
         let mut initial_time = NaiveDate::from_ymd(2019, 12, 22).and_hms(9, 39, 30);
         let mut items: Vec<Item> = Vec::with_capacity(length);
         let mut open_event = false;
-        let path = String::from("test.log");
+        // tests are run in parallel, so we need to prevent collisions, but it's nice to 
+        // have the files handy to look at in case of failure
+        // this technique seems to suffice
+        let path = format!(
+            "test-{}-{}.log",
+            length,
+            Local::now().naive_local().timestamp_millis()
+        );
         let file = File::create(path.clone()).unwrap();
         let mut file = LineWriter::new(file);
         for offset in 0..length {
