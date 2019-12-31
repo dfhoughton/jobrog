@@ -32,7 +32,7 @@ fn main() {
         ("add", Some(m)) => add::run(m),
         ("note", Some(m)) => note::run(m),
         ("done", _) => done::run(),
-        ("edit", _) => edit::run(),
+        ("edit", Some(m)) => edit::run(m),
         ("resume", Some(m)) => resume::run(m),
         ("last", Some(m)) => last::run(m),
         ("first", Some(m)) => first::run(m),

@@ -1334,7 +1334,7 @@ fn parse_timestamp(timestamp: &str) -> NaiveDateTime {
     NaiveDate::from_ymd(year, month, day).and_hms(hour, minute, second)
 }
 
-fn timestamp(ts: &NaiveDateTime) -> String {
+pub fn timestamp(ts: &NaiveDateTime) -> String {
     format!(
         "{} {:>2} {:>2} {:>2} {:>2} {:>2}",
         ts.year(),
