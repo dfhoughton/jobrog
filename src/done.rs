@@ -19,25 +19,25 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
 
 pub fn run() {
     let mut reader = Log::new(None).expect("could not read log");
+    let conf = Configuration::read();
     if let Some(event) = reader.last_event() {
-        check_for_ongoing_event(&mut reader);
+        check_for_ongoing_event(&mut reader, &conf);
         if event.ongoing() {
             let (done, offset) = reader.close_event();
             let mut message = String::from("ending ");
             message += &event.description;
             describe(&message, Item::Done(done, offset));
         } else {
-            warn("the most recent event is not ongoing");
-            let configuration = Configuration::read();
+            warn("the most recent event is not ongoing", &conf);
             let now = Local::now().naive_local();
             let start = &event.start.clone();
             let event = Event::gather_by_day(vec![event], &now);
             println!();
-            display_events(event, start, &now, &configuration);
+            display_events(event, start, &now, &conf);
             println!();
-            warn("no change to log")
+            warn("no change to log", &conf)
         }
     } else {
-        warn("there is currently no event in the log")
+        warn("there is currently no event in the log", &conf)
     }
 }

@@ -59,6 +59,8 @@ pub fn parse_line(line: &str, offset: usize) -> Item {
                             end_overlap: false,
                             description: description.to_owned(),
                             tags: tags,
+                            vacation: false,
+                            vacation_type: None,
                         },
                         offset,
                     )
@@ -648,6 +650,8 @@ mod tests {
                         end_overlap: false,
                         tags: random_tags(),
                         description: random_text(),
+                        vacation: false,
+                        vacation_type: None,
                     },
                     offset,
                 )
@@ -659,7 +663,7 @@ mod tests {
         let mut initial_time = NaiveDate::from_ymd(2019, 12, 22).and_hms(9, 39, 30);
         let mut items: Vec<Item> = Vec::with_capacity(length);
         let mut open_event = false;
-        // tests are run in parallel, so we need to prevent collisions, but it's nice to 
+        // tests are run in parallel, so we need to prevent collisions, but it's nice to
         // have the files handy to look at in case of failure
         // this technique seems to suffice
         let path = format!(
@@ -1319,7 +1323,7 @@ impl PartialOrd for Item {
     }
 }
 
-fn parse_timestamp(timestamp: &str) -> NaiveDateTime {
+pub fn parse_timestamp(timestamp: &str) -> NaiveDateTime {
     lazy_static! {
         static ref RE: Regex = Regex::new(r"\d+").unwrap();
     }
@@ -1347,7 +1351,7 @@ pub fn timestamp(ts: &NaiveDateTime) -> String {
 }
 
 // converts a tag string in the log into a deduped, unescaped set of tags
-fn parse_tags(tags: &str) -> Vec<String> {
+pub fn parse_tags(tags: &str) -> Vec<String> {
     let mut parsed = vec![];
     let mut escaped = false;
     let mut current = String::with_capacity(tags.len());
@@ -1381,7 +1385,7 @@ fn parse_tags(tags: &str) -> Vec<String> {
 }
 
 // convert tags back into a part of a log string
-fn tags(tags: &Vec<String>) -> String {
+pub fn tags(tags: &Vec<String>) -> String {
     let mut v = tags.clone();
     v.sort_unstable();
     v.dedup(); // there may still be duplicates after we normalize whitespace below; oh, well
@@ -1409,6 +1413,8 @@ pub struct Event {
     pub end_overlap: bool,
     pub description: String,
     pub tags: Vec<String>,
+    pub vacation: bool,
+    pub vacation_type: Option<String>,
 }
 
 impl Event {
@@ -1422,6 +1428,8 @@ impl Event {
             end_overlap: false,
             description: description,
             tags: tags,
+            vacation: false,
+            vacation_type: None,
         }
     }
     fn bounded_time(self, end: Option<NaiveDateTime>) -> Self {
@@ -1432,6 +1440,8 @@ impl Event {
             end_overlap: self.end_overlap,
             description: self.description,
             tags: self.tags,
+            vacation: self.vacation,
+            vacation_type: self.vacation_type,
         }
     }
     pub fn ongoing(&self) -> bool {

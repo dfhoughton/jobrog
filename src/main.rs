@@ -4,7 +4,7 @@ extern crate jobrog;
 
 use clap::App;
 use jobrog::{
-    add, configure, done, edit, first, last, note, resume, summary, truncate, util, when,
+    add, configure, done, edit, first, last, note, resume, summary, truncate, util, when, vacation
 };
 
 fn main() {
@@ -23,9 +23,9 @@ fn main() {
     cli = summary::cli(cli);
     cli = edit::cli(cli);
     cli = note::cli(cli);
-    cli = truncate::cli(cli);
-    // cli = vacation::cli(cli);
     cli = configure::cli(cli);
+    cli = truncate::cli(cli);
+    cli = vacation::cli(cli);
     // cli = tags::cli(cli);
     let matches = cli.get_matches();
     match matches.subcommand() {
@@ -40,6 +40,7 @@ fn main() {
         ("summary", Some(m)) => summary::run(m),
         ("truncate", Some(m)) => truncate::run(m),
         ("configure", Some(m)) => configure::run(m),
+        ("vacation", Some(m)) => vacation::run(m),
         _ => println!("{}", matches.usage()),
     }
 }

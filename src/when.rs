@@ -46,15 +46,21 @@ pub fn run(matches: &ArgMatches) {
         Ok((start, end, _)) => {
             let now = Local::now().naive_local();
             if now <= start {
-                fatal(format!(
-                    "the current moment, {}, must be after the first moment sought: {}.",
-                    now, start
-                ))
+                fatal(
+                    format!(
+                        "the current moment, {}, must be after the first moment sought: {}.",
+                        now, start
+                    ),
+                    &configuration,
+                )
             } else if start >= end {
-                fatal(format!(
-                    "the current moment, {}, must be before the last moment sought: {}.",
-                    now, end
-                ))
+                fatal(
+                    format!(
+                        "the current moment, {}, must be before the last moment sought: {}.",
+                        now, end
+                    ),
+                    &configuration,
+                )
             } else {
                 let mut reader = Log::new(None).expect("could not read log");
                 let events = reader.events_in_range(&start, &now);
@@ -84,7 +90,7 @@ pub fn run(matches: &ArgMatches) {
                 }
             }
         }
-        Err(e) => fatal(e.msg()),
+        Err(e) => fatal(e.msg(), &configuration),
     }
 }
 

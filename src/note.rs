@@ -1,8 +1,9 @@
 extern crate clap;
 
+use crate::configure::Configuration;
+use crate::log::{Item, Log};
+use crate::util::{check_for_ongoing_event, describe, some_nws};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
-use crate::log::{Log, Item};
-use crate::util::{check_for_ongoing_event, describe};
 
 pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
     mast.subcommand(
@@ -19,6 +20,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                 .help("add this tag to the note")
                 .long_help("A tag is just a short description, like 'fun', or 'Louis'. Add a tag to a note to facilitate finding or grouping similar notes.")
                 .value_name("tag")
+                .validator(|v| if some_nws(&v) {Ok(())} else {Err(format!("tag {:?} needs some non-whitespace character", v))})
                 .display_order(1)
             )
             .arg(
@@ -47,7 +49,8 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
 
 pub fn run(matches: &ArgMatches) {
     let mut reader = Log::new(None).expect("could not read log");
-    check_for_ongoing_event(&mut reader);
+    let conf = Configuration::read();
+    check_for_ongoing_event(&mut reader, &conf);
     let description = matches
         .values_of("note")
         .unwrap()

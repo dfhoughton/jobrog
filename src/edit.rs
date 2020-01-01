@@ -28,10 +28,10 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
 }
 
 pub fn run(matches: &ArgMatches) {
+    let conf = Configuration::read();
     if matches.is_present("validate") {
-        validation_messages(0, 0);
+        validation_messages(0, 0, &conf);
     } else {
-        let conf = Configuration::read();
         if let Some((editor, _)) = conf.effective_editor() {
             copy(log_path(), backup()).expect("could not make backup log");
             let status = Command::new(&editor)
@@ -40,19 +40,25 @@ pub fn run(matches: &ArgMatches) {
                 .expect("failed to start editor process");
             if status.success() {
                 if let Some((offset, line_number)) = find_change_offset() {
-                    validation_messages(offset, line_number);
+                    validation_messages(offset, line_number, &conf);
                 } else {
                     println!("no change found in log file; deleting backup...");
                     std::fs::remove_file(backup()).expect("failed to remove log.bak");
                 }
             } else {
-                fatal("the editor closed with an error; restoring log file from backup");
+                fatal(
+                    "the editor closed with an error; restoring log file from backup",
+                    &conf,
+                );
                 copy(backup(), log_path()).expect("could restore log from backup");
                 println!("done");
                 std::fs::remove_file(backup()).expect("failed to remove log.bak");
             }
         } else {
-            fatal("no text editor available; see `job configure --help`")
+            fatal(
+                "no text editor available; see `job configure --help`",
+                &conf,
+            )
         }
     }
 }
@@ -101,15 +107,18 @@ fn validation_file() -> PathBuf {
     validation_file_path
 }
 
-fn validation_messages(byte_offset: usize, starting_line: usize) {
+fn validation_messages(byte_offset: usize, starting_line: usize, conf: &Configuration) {
     if let Some((line_number, count)) = validate(byte_offset, starting_line) {
         if count > 1 {
-            warn(format!(
-                "{} errors were found starting at line {}",
-                count, line_number
-            ))
+            warn(
+                format!(
+                    "{} errors were found starting at line {}",
+                    count, line_number
+                ),
+                conf,
+            )
         } else {
-            warn(format!("one error was found at line {}", line_number))
+            warn(format!("one error was found at line {}", line_number), conf)
         }
         copy(validation_file(), log_path()).expect("could not copy validation file to log");
         std::fs::remove_file(validation_file()).expect("could not remove validation file");

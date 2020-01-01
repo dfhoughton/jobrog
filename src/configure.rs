@@ -174,10 +174,10 @@ pub fn run(matches: &ArgMatches) {
         let start_date = NaiveDate::from_ymd(year, month, day);
         if conf.start_pay_period.is_some() && &start_date == conf.start_pay_period.as_ref().unwrap()
         {
-            warn(format!(
-                "start-pay-period is already {} {} {}!",
-                year, month, day
-            ));
+            warn(
+                format!("start-pay-period is already {} {} {}!", year, month, day),
+                &conf,
+            );
         } else {
             println!("setting start-pay-period to {} {} {}!", year, month, day);
             conf.start_pay_period = Some(start_date);
@@ -189,7 +189,7 @@ pub fn run(matches: &ArgMatches) {
         if let Some(v) = matches.value_of("sunday-begins-week") {
             let v: bool = v.parse().unwrap();
             if v == conf.sunday_begins_week {
-                warn(format!("sunday-begins-week is already {}!", v));
+                warn(format!("sunday-begins-week is already {}!", v), &conf);
             } else {
                 println!("setting sunday-begins-week to {}!", v);
                 conf.sunday_begins_week = v;
@@ -202,7 +202,7 @@ pub fn run(matches: &ArgMatches) {
         if let Some(v) = matches.value_of("length-pay-period") {
             let v: u32 = v.parse().unwrap();
             if v == conf.length_pay_period {
-                warn(format!("length-pay-period is already {}!", v));
+                warn(format!("length-pay-period is already {}!", v), &conf);
             } else {
                 println!("setting length-pay-period to {}!", v);
                 conf.length_pay_period = v;
@@ -215,7 +215,7 @@ pub fn run(matches: &ArgMatches) {
         if let Some(v) = matches.value_of("day-length") {
             let v: f32 = v.parse().unwrap();
             if v == conf.day_length {
-                warn(format!("day-length is already {}!", v));
+                warn(format!("day-length is already {}!", v), &conf);
             } else {
                 println!("setting day-length to {}!", v);
                 conf.day_length = v;
@@ -227,7 +227,7 @@ pub fn run(matches: &ArgMatches) {
         did_something = true;
         if let Some(v) = matches.value_of("workdays") {
             if v == &conf.serialize_workdays() {
-                warn(format!("workdays is already {}!", v));
+                warn(format!("workdays is already {}!", v), &conf);
             } else {
                 println!("setting workdays to {}!", v);
                 conf.workdays(v);
@@ -238,7 +238,7 @@ pub fn run(matches: &ArgMatches) {
     if let Some(v) = matches.value_of("editor") {
         did_something = true;
         if conf.editor.is_some() && v == conf.editor.as_ref().unwrap() {
-            warn(format!("editor is already {}!", v));
+            warn(format!("editor is already {}!", v), &conf);
         } else {
             println!("setting editor to {}!", v);
             conf.editor(v);
@@ -249,7 +249,7 @@ pub fn run(matches: &ArgMatches) {
         did_something = true;
         let v = v.parse::<usize>().unwrap();
         if conf.max_width.is_some() && v == conf.max_width.unwrap() {
-            warn(format!("max-width is already {}!", v));
+            warn(format!("max-width is already {}!", v), &conf);
         } else {
             println!("setting max-width to {}!", v);
             conf.max_width = Some(v);
@@ -298,7 +298,7 @@ pub fn run(matches: &ArgMatches) {
             if set {
                 println!("unset {}", v);
             } else {
-                warn(format!("unknown configuration parameter!: {}", v));
+                warn(format!("unknown configuration parameter!: {}", v), &conf);
             }
         }
     }
@@ -371,10 +371,14 @@ pub fn run(matches: &ArgMatches) {
         }
         if !footnotes.is_empty() {
             println!("\nenvironment variable sources:");
-            let data : Vec<Vec<String>> = footnotes.into_iter().enumerate().map(|(i, s)| {
-                let asterisks = std::iter::repeat("*").take(i + 1).collect::<String>();
-                vec![asterisks, s]
-            }).collect();
+            let data: Vec<Vec<String>> = footnotes
+                .into_iter()
+                .enumerate()
+                .map(|(i, s)| {
+                    let asterisks = std::iter::repeat("*").take(i + 1).collect::<String>();
+                    vec![asterisks, s]
+                })
+                .collect();
             table = Colonnade::new(2, conf.width()).unwrap();
             table.columns[0].alignment(Alignment::Right).left_margin(2);
             for line in table.tabulate(data).expect("data too wide") {

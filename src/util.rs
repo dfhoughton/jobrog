@@ -39,6 +39,7 @@ pub fn common_search_or_filter_arguments(
         .short("t")
         .long("tag")
         .visible_alias("tag-all")
+        .validator(|v| if some_nws(&v) {Ok(())} else {Err(format!("tag {:?} needs some non-whitespace character", v))})
         .multiple(true)
         .number_of_values(1)
         .help(match for_events {
@@ -59,6 +60,7 @@ pub fn common_search_or_filter_arguments(
         .short("T")
         .long("tag-none")
         .visible_alias("tn")
+        .validator(|v| if some_nws(&v) {Ok(())} else {Err(format!("tag {:?} needs some non-whitespace character", v))})
         .multiple(true)
         .number_of_values(1)
         .help(match for_events {
@@ -78,6 +80,7 @@ pub fn common_search_or_filter_arguments(
         Arg::with_name("tag-some")
         .short("s")
         .long("tag-some")
+        .validator(|v| if some_nws(&v) {Ok(())} else {Err(format!("tag {:?} needs some non-whitespace character", v))})
         .visible_alias("ts")
         .multiple(true)
         .number_of_values(1)
@@ -187,6 +190,7 @@ pub fn display_notes(
     end: &NaiveDateTime,
     configuration: &Configuration,
 ) {
+    let color = Color::new(configuration);
     let same_year = start.year() == end.year();
     let mut last_time: Option<NaiveDateTime> = None;
     let mut last_date: Option<NaiveDate> = None;
@@ -209,21 +213,16 @@ pub fn display_notes(
     for (offset, row) in note_table.macerate(data).unwrap().iter().enumerate() {
         let date = notes[offset].time.date();
         if last_date.is_none() || last_date.unwrap() != date {
-            let style = Style::new().fg(Blue);
-            println!("{}", style.paint(date_string(&date, same_year)));
+            println!("{}", color.blue(date_string(&date, same_year)));
         }
         last_date = Some(date);
         for line in row {
             for (cell_num, (margin, cell)) in line.iter().enumerate() {
-                let mut style = Style::new();
-                match cell_num {
-                    1 => {
-                        style = style.fg(Green);
-                        ()
-                    }
-                    _ => (),
-                }
-                print!("{}{}", margin, style.paint(cell));
+                let cell = match cell_num {
+                    1 => color.green(cell),
+                    _ => cell.to_owned(),
+                };
+                print!("{}{}", margin, cell);
             }
             println!();
         }
@@ -236,6 +235,7 @@ pub fn display_events(
     end: &NaiveDateTime,
     configuration: &Configuration,
 ) {
+    let color = Color::new(configuration);
     let mut last_time: Option<NaiveDateTime> = None;
     let mut last_date: Option<NaiveDate> = None;
     let mut durations: BTreeMap<String, f32> = BTreeMap::new();
@@ -286,25 +286,17 @@ pub fn display_events(
     for (offset, row) in event_table.macerate(data).unwrap().iter().enumerate() {
         let date = events[offset].start.date();
         if last_date.is_none() || last_date.unwrap() != date {
-            let style = Style::new().fg(Blue);
-            println!("{}", style.paint(date_string(&date, same_year)));
+            println!("{}", color.blue(date_string(&date, same_year)));
         }
         last_date = Some(date);
         for line in row {
             for (cell_num, (margin, cell)) in line.iter().enumerate() {
-                let mut style = Style::new();
-                match cell_num {
-                    3 => {
-                        style = style.fg(Cyan);
-                        ()
-                    }
-                    4 => {
-                        style = style.fg(Green);
-                        ()
-                    }
-                    _ => (),
-                }
-                print!("{}{}", margin, style.paint(cell));
+                let cell = match cell_num {
+                    3 => color.cyan(cell),
+                    4 => color.green(cell),
+                    _ => cell.to_owned(),
+                };
+                print!("{}{}", margin, cell);
             }
             println!();
         }
@@ -356,12 +348,14 @@ pub fn display_events(
     }
 }
 
-pub fn warn<T: ToString>(msg: T) {
-    eprintln!("{}", Purple.paint(msg.to_string()));
+pub fn warn<T: ToString>(msg: T, conf: &Configuration) {
+    let color = Color::new(&conf);
+    eprintln!("{}", color.purple(msg));
 }
 
-pub fn fatal<T: ToString>(msg: T) {
-    eprintln!("{} {}", Red.paint("ERROR:"), msg.to_string());
+pub fn fatal<T: ToString>(msg: T, conf: &Configuration) {
+    let color = Color::new(&conf);
+    eprintln!("{} {}", color.red("ERROR:"), msg.to_string());
     std::process::exit(1);
 }
 
@@ -408,9 +402,9 @@ pub fn describe(action: &str, item: Item) {
 }
 
 // this is really a check for ongoing *multi-day* events
-pub fn check_for_ongoing_event(reader: &mut Log) {
+pub fn check_for_ongoing_event(reader: &mut Log, conf: &Configuration) {
     if reader.forgot_to_end_last_event() {
-        warn("it appears an event begun on a previous day is ongoing");
+        warn("it appears an event begun on a previous day is ongoing", conf);
         println!();
         let last_event = reader.last_event().unwrap();
         let start = &last_event.start.clone();
@@ -426,6 +420,7 @@ pub fn check_for_ongoing_event(reader: &mut Log) {
 pub fn init() {
     if !base_dir().as_path().exists() {
         create_dir(base_dir().to_str().unwrap()).expect("could not create base directory");
+        println!("{}", Green.paint(&format!("initialized hidden directory {} for Job Log", base_dir().to_str().unwrap())));
     }
     if !log_path().as_path().exists() {
         let mut log =
@@ -441,4 +436,43 @@ pub fn init() {
         readme.write_all(b"\nJob Log\n\nThis directory holds files used by Job Log to maintain\na work log. For more details type\n\n   job --help\n\non the command line.\n\n       
 ").expect("could not write README");
     }
+}
+
+// putting this into a common struct so we can easily turn color off
+pub struct Color<'a> {
+    conf: &'a Configuration,
+}
+
+impl<'a> Color<'a> {
+    pub fn new(conf: &'a Configuration) -> Color<'a> {
+        Color { conf }
+    }
+    pub fn heading<T: ToString>(&self, text: T) -> String {
+        format!("{}", Style::new().bold().paint(text.to_string()))
+    }
+    pub fn cyan<T: ToString>(&self, text: T) -> String {
+        format!("{}", Cyan.paint(text.to_string()))
+    }
+    pub fn green<T: ToString>(&self, text: T) -> String {
+        format!("{}", Green.paint(text.to_string()))
+    }
+    pub fn blue<T: ToString>(&self, text: T) -> String {
+        format!("{}", Blue.paint(text.to_string()))
+    }
+    pub fn red<T: ToString>(&self, text: T) -> String {
+        format!("{}", Red.paint(text.to_string()))
+    }
+    pub fn purple<T: ToString>(&self, text: T) -> String {
+        format!("{}", Purple.paint(text.to_string()))
+    }
+}
+
+// for use in validating tags
+pub fn some_nws(s: &str) -> bool {
+    for c in s.chars() {
+        if !c.is_whitespace() {
+            return true;
+        }
+    }
+    return false;
 }

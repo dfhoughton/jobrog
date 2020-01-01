@@ -5,7 +5,7 @@ use crate::configure::Configuration;
 use crate::log::{Event, Filter, Log, Note};
 use crate::util::{
     check_for_ongoing_event, common_search_or_filter_arguments, display_events, display_notes,
-    fatal, warn,
+    fatal, remainder, warn,
 };
 use clap::{App, Arg, ArgMatches, SubCommand};
 use two_timer::{parsable, parse, Config};
@@ -45,19 +45,18 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
 }
 
 pub fn run(matches: &ArgMatches) {
-    let phrase = matches
-        .values_of("period")
-        .unwrap()
-        .collect::<Vec<&str>>()
-        .join(" ");
+    let phrase = remainder("period", matches);
     let date = matches.value_of("date").unwrap_or(&phrase);
-    if phrase.len() > 0 && matches.is_present("date") {
-        warn(format!(
-            "--date option '{}' is overriding '{}' as a time expression",
-            date, phrase
-        ));
-    }
     let configuration = Configuration::read();
+    if phrase.len() > 0 && matches.is_present("date") {
+        warn(
+            format!(
+                "--date option '{}' is overriding '{}' as a time expression",
+                date, phrase
+            ),
+            &configuration,
+        );
+    }
     let conf = Config::new()
         .monday_starts_week(!configuration.sunday_begins_week)
         .pay_period_start(configuration.start_pay_period)
@@ -65,7 +64,7 @@ pub fn run(matches: &ArgMatches) {
     if let Ok((start, end, _)) = parse(&phrase, Some(conf)) {
         let filter = Filter::new(matches);
         let mut reader = Log::new(None).expect("could not read log");
-        check_for_ongoing_event(&mut reader);
+        check_for_ongoing_event(&mut reader, &configuration);
         if matches.is_present("notes") {
             let note: Vec<Note> = reader
                 .notes_in_range(&start, &end)
@@ -73,7 +72,7 @@ pub fn run(matches: &ArgMatches) {
                 .filter(|n| filter.matches(n))
                 .collect();
             if note.is_empty() {
-                warn("no note found")
+                warn("no note found", &configuration)
             } else {
                 display_notes(note, &start, &end, &configuration);
             }
@@ -89,12 +88,15 @@ pub fn run(matches: &ArgMatches) {
                 Event::gather_by_day_and_merge(events, &end)
             };
             if events.is_empty() {
-                warn("no event found")
+                warn("no event found", &configuration)
             } else {
                 display_events(events, &start, &end, &configuration);
             }
         }
     } else {
-        fatal(format!("could not parse '{}' as a time expression", phrase))
+        fatal(
+            format!("could not parse '{}' as a time expression", phrase),
+            &configuration,
+        )
     }
 }

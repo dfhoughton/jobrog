@@ -32,7 +32,7 @@ pub fn run(matches: &ArgMatches) {
             .take(1)
             .collect();
         if note.is_empty() {
-            warn("no note found")
+            warn("no note found", &configuration)
         } else {
             let start = &note[0].time.clone();
             let now = Local::now().naive_local();
@@ -45,7 +45,7 @@ pub fn run(matches: &ArgMatches) {
             .take(1)
             .collect();
         if event.is_empty() {
-            warn("no event found")
+            warn("no event found", &configuration)
         } else {
             let start = &event[0].start.clone();
             let now = Local::now().naive_local();

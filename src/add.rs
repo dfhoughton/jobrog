@@ -1,8 +1,9 @@
 extern crate chrono;
 extern crate clap;
 
+use crate::configure::Configuration;
 use crate::log::{Item, Log};
-use crate::util::{check_for_ongoing_event, describe};
+use crate::util::{check_for_ongoing_event, describe, some_nws};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 
 pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
@@ -20,6 +21,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                 .help("add this tag to the event")
                 .long_help("A tag is just a short description, like 'fun', or 'overhead'. Add a tag to an event to facilitate finding or grouping similar events.")
                 .value_name("tag")
+                .validator(|v| if some_nws(&v) {Ok(())} else {Err(format!("{:?} is not a suitable tag: it has no non-whitespace character", v))} )
                 .display_order(1)
             )
             .arg(
@@ -48,7 +50,8 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
 
 pub fn run(matches: &ArgMatches) {
     let mut reader = Log::new(None).expect("could not read log");
-    check_for_ongoing_event(&mut reader);
+    let conf = Configuration::read();
+    check_for_ongoing_event(&mut reader, &conf);
     let description = matches
         .values_of("description")
         .unwrap()
