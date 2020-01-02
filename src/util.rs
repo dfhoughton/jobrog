@@ -322,26 +322,27 @@ pub fn display_events(
         ]);
     }
     for (offset, row) in tags_table.macerate(data).unwrap().iter().enumerate() {
-        let mut style = Style::new();
-        match offset {
-            0 => {
-                style = style.fg(Red);
-                ()
-            }
-            1 => {
-                if untagged_duration > 0.0 {
-                    style = style.fg(Red);
-                }
-            }
-            _ => (),
-        }
         for line in row {
             for (cell_num, (margin, cell)) in line.iter().enumerate() {
-                if cell_num == 0 {
-                    print!("{}{}", margin, style.paint(cell));
-                } else {
-                    print!("{}{}", margin, cell);
-                }
+                // somewhat hacky; should improve this
+                let cell = match offset {
+                    0 => {
+                        if cell_num == 0 {
+                            color.red(cell)
+                        } else {
+                            cell.to_owned()
+                        }
+                    },
+                    1 => {
+                        if cell_num == 0 && untagged_duration > 0.0 {
+                            color.red(cell)
+                        } else {
+                            cell.to_owned()
+                        }
+                    },
+                    _ => cell.to_owned(),
+                };
+                print!("{}{}", margin, cell);
             }
             println!();
         }
@@ -404,7 +405,10 @@ pub fn describe(action: &str, item: Item) {
 // this is really a check for ongoing *multi-day* events
 pub fn check_for_ongoing_event(reader: &mut Log, conf: &Configuration) {
     if reader.forgot_to_end_last_event() {
-        warn("it appears an event begun on a previous day is ongoing", conf);
+        warn(
+            "it appears an event begun on a previous day is ongoing",
+            conf,
+        );
         println!();
         let last_event = reader.last_event().unwrap();
         let start = &last_event.start.clone();
@@ -420,7 +424,13 @@ pub fn check_for_ongoing_event(reader: &mut Log, conf: &Configuration) {
 pub fn init() {
     if !base_dir().as_path().exists() {
         create_dir(base_dir().to_str().unwrap()).expect("could not create base directory");
-        println!("{}", Green.paint(&format!("initialized hidden directory {} for Job Log", base_dir().to_str().unwrap())));
+        println!(
+            "{}",
+            Green.paint(&format!(
+                "initialized hidden directory {} for Job Log",
+                base_dir().to_str().unwrap()
+            ))
+        );
     }
     if !log_path().as_path().exists() {
         let mut log =
@@ -447,22 +457,43 @@ impl<'a> Color<'a> {
     pub fn new(conf: &'a Configuration) -> Color<'a> {
         Color { conf }
     }
+    fn nogo(&self) -> bool {
+        self.conf.effective_color().0 == "false"
+    }
     pub fn heading<T: ToString>(&self, text: T) -> String {
+        if self.nogo() {
+            return text.to_string();
+        }
         format!("{}", Style::new().bold().paint(text.to_string()))
     }
     pub fn cyan<T: ToString>(&self, text: T) -> String {
+        if self.nogo() {
+            return text.to_string();
+        }
         format!("{}", Cyan.paint(text.to_string()))
     }
     pub fn green<T: ToString>(&self, text: T) -> String {
+        if self.nogo() {
+            return text.to_string();
+        }
         format!("{}", Green.paint(text.to_string()))
     }
     pub fn blue<T: ToString>(&self, text: T) -> String {
+        if self.nogo() {
+            return text.to_string();
+        }
         format!("{}", Blue.paint(text.to_string()))
     }
     pub fn red<T: ToString>(&self, text: T) -> String {
+        if self.nogo() {
+            return text.to_string();
+        }
         format!("{}", Red.paint(text.to_string()))
     }
     pub fn purple<T: ToString>(&self, text: T) -> String {
+        if self.nogo() {
+            return text.to_string();
+        }
         format!("{}", Purple.paint(text.to_string()))
     }
 }

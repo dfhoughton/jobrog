@@ -24,6 +24,7 @@ pub const SUNDAY_BEGINS_WEEK: &str = "true";
 pub const LENGTH_PAY_PERIOD: &str = "14";
 pub const DAY_LENGTH: &str = "8";
 pub const WORKDAYS: &str = "MTWHF";
+pub const COLOR: &str = "true";
 
 fn valid_length_pay_period(v: String) -> Result<(), String> {
     let n = v.parse::<u32>();
@@ -81,7 +82,8 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
             .arg(
                 Arg::with_name("precision")
                 .long("precision")
-                .help("decimal places of precision in display of time; default value: 2") // must match PRECISION
+                .help("decimal places of precision in display of time")
+                .default_value(PRECISION)
                 .long_help("The number of decimal places of precision used in the display of lengths of periods in numbers of hours. If the number is 0, probably not what you want, all periods will be rounded to a whole number of hours. The default value is 2.")
                 .possible_values(&["0", "1", "2", "3"])
                 .value_name("int")
@@ -97,21 +99,24 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
             .arg(
                 Arg::with_name("sunday-begins-week")
                 .long("sunday-begins-week")
-                .help("whether Sunday should be considered the first day of the week; default value: true") // must match SUNDAY_BEGINS_WEEK
+                .help("whether Sunday should be considered the first day of the week")
+                .default_value(SUNDAY_BEGINS_WEEK)
                 .possible_values(&["true", "false"])
                 .value_name("bool")
             )
             .arg(
                 Arg::with_name("length-pay-period")
                 .long("length-pay-period")
-                .help("the number of days in a pay period; default value: 14") // must match LENGTH_PAY_PERIOD
+                .help("the number of days in a pay period")
+                .default_value(LENGTH_PAY_PERIOD)
                 .validator(valid_length_pay_period)
                 .value_name("int")
             )
             .arg(
                 Arg::with_name("day-length")
                 .long("day-length")
-                .help("expected number of hours in a workday; default value: 8") // must match DAY_LENGTH
+                .help("expected number of hours in a workday")
+                .default_value(DAY_LENGTH)
                 .validator(valid_day_length)
                 .value_name("num")
             )
@@ -119,7 +124,8 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                 Arg::with_name("workdays")
                 .long("workdays")
                 .help("which days you are expected to work; default value: MTWHF")
-                .long_help("Workdays during the week represented as a subset of SMTWHFA, where S is Sunday and A is Saturday, etc. The default value is MTWHF.") // must match WORKDAYS
+                .long_help("Workdays during the week represented as a subset of SMTWHFA, where S is Sunday and A is Saturday, etc.")
+                .default_value(WORKDAYS)
                 .validator(|v| if Regex::new(r"\A[SMTWHFA]+\z").unwrap().is_match(&v) {Ok(())} else {Err(format!("must contain only the letters SMTWHFA, where S means Sunday and A, Saturday, etc."))})
                 .value_name("days")
             )
@@ -136,6 +142,15 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                 .help("maximum number of columns when summarizing data")
                 .validator(valid_max_width)
                 .value_name("num")
+            )
+            .arg(
+                Arg::with_name("color")
+                .long("color")
+                .help("whether to use colors")
+                .default_value("true")
+                .possible_values(&["true", "false"])
+                .validator(valid_max_width)
+                .value_name("bool")
             )
             .arg(
                 Arg::with_name("unset")
@@ -193,6 +208,19 @@ pub fn run(matches: &ArgMatches) {
             } else {
                 println!("setting sunday-begins-week to {}!", v);
                 conf.sunday_begins_week = v;
+                write = true;
+            }
+        }
+    }
+    if matches.is_present("color") {
+        did_something = true;
+        if let Some(v) = matches.value_of("color") {
+            let v: bool = v.parse().unwrap();
+            if v == conf.sunday_begins_week {
+                warn(format!("color is already {}!", v), &conf);
+            } else {
+                println!("setting color to {}!", v);
+                conf.color = Some(v);
                 write = true;
             }
         }
@@ -358,6 +386,16 @@ pub fn run(matches: &ArgMatches) {
                     String::from("")
                 },
             ],
+            vec![String::from("color"), {
+                let (mut color, source) = conf.effective_color();
+                if let Some(source) = source {
+                    for _ in 0..footnotes.len() + 1 {
+                        color.push_str("*");
+                    }
+                    footnotes.push(source);
+                }
+                color
+            }],
         ];
         let mut table = Colonnade::new(2, conf.width()).unwrap();
         table.columns[1].alignment(Alignment::Right).left_margin(2);
@@ -399,6 +437,7 @@ pub struct Configuration {
     pub precision: u8,
     pub start_pay_period: Option<NaiveDate>,
     pub sunday_begins_week: bool,
+    pub color: Option<bool>,
     pub workdays: u8, // bit flags
     pub max_width: Option<usize>,
 }
@@ -425,6 +464,11 @@ impl Configuration {
         if let Ok(ini) = Ini::load_from_file(Configuration::config_file().as_path()) {
             let editor = if let Some(s) = ini.get_from(Some("external"), "editor") {
                 Some(String::from(s))
+            } else {
+                None
+            };
+            let color = if let Some(s) = ini.get_from(Some("color"), "color") {
+                Some(s == COLOR)
             } else {
                 None
             };
@@ -458,6 +502,7 @@ impl Configuration {
                     "sunday-begins-week",
                     SUNDAY_BEGINS_WEEK,
                 ) == "true",
+                color: color,
                 workdays: Configuration::parse_workdays(ini.get_from_or(
                     Some("time"),
                     "workdays",
@@ -474,6 +519,7 @@ impl Configuration {
                 length_pay_period: LENGTH_PAY_PERIOD.parse().unwrap(),
                 precision: PRECISION.parse().unwrap(),
                 start_pay_period: None,
+                color: None,
                 sunday_begins_week: SUNDAY_BEGINS_WEEK == "true",
                 workdays: Configuration::parse_workdays(WORKDAYS),
                 max_width: None,
@@ -539,6 +585,17 @@ impl Configuration {
                         _ => None,
                     }
                 }
+            }
+        }
+    }
+    pub fn effective_color(&self) -> (String, Option<String>) {
+        if let Some(v) = self.color {
+            (format!("{}", v), None)
+        } else {
+            let var = String::from("NO_COLOR");
+            match env::var(&var) {
+                Ok(_) => (String::from("false"), Some(var)),
+                _ => (format!("{}", COLOR == "true"), None),
             }
         }
     }
