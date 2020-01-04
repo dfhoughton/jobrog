@@ -23,7 +23,7 @@ pub const PRECISION: &str = "2";
 pub const SUNDAY_BEGINS_WEEK: &str = "true";
 pub const LENGTH_PAY_PERIOD: &str = "14";
 pub const DAY_LENGTH: &str = "8";
-pub const BEGINNING_WORK_DAY: &str = "9:00";
+pub const BEGINNING_WORK_DAY: (usize, usize) = (9, 0);
 pub const WORKDAYS: &str = "MTWHF";
 pub const COLOR: &str = "true";
 
@@ -77,7 +77,28 @@ fn valid_max_width(v: String) -> Result<(), String> {
 fn valid_beginning_work_day(v: String) -> Result<(), String> {
     let rx = Regex::new(r"\A([1-9]\d?)(?::([0-6]\d))?\z").unwrap();
     if let Some(captures) = rx.captures(&v) {
-        Ok(())
+        let hour = captures[1].to_owned();
+        let hour = hour.parse::<usize>().unwrap();
+        if hour < 24 {
+            if let Some(m) = captures.get(2) {
+                let minute = m.as_str().parse::<usize>().unwrap();
+                if minute < 60 {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "minute in beginning work day expression '{}' must be less than 60",
+                        v
+                    ))
+                }
+            } else {
+                Ok(())
+            }
+        } else {
+            Err(format!(
+                "hour in beginning work day expression '{}' must be less than 24",
+                v
+            ))
+        }
     } else {
         Err(String::from(""))
     }
@@ -122,10 +143,17 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
             )
             .arg(
                 Arg::with_name("day-length")
-                .long("day-length; default value: 8")
-                .help("expected number of hours in a workday")
+                .long("day-length")
+                .help("expected number of hours in a workday; default value: 8")
                 .validator(valid_day_length)
                 .value_name("num")
+            )
+            .arg(
+                Arg::with_name("beginning-work-day")
+                .long("beginning-work-day")
+                .help("when a work day typically begins; default value: 9:00")
+                .validator(valid_beginning_work_day)
+                .value_name("hours[:minutes]")
             )
             .arg(
                 Arg::with_name("workdays")
@@ -239,6 +267,26 @@ pub fn run(matches: &ArgMatches) {
             }
         }
     }
+    if matches.is_present("beginning-work-day") {
+        did_something = true;
+        let v = matches.value_of("beginning-work-day").unwrap();
+        let rx = Regex::new(r"\A(\d+)(?::0*(\d+))?\z").unwrap();
+        let captures = rx.captures(&v).unwrap();
+        let hour = captures[1].parse::<usize>().unwrap();
+        let minute = if let Some(m) = captures.get(2) {
+            m.as_str().parse::<usize>().unwrap()
+        } else {
+            0
+        };
+        let beginning_work_day = (hour, minute);
+        if conf.beginning_work_day == beginning_work_day {
+            warn(format!("beginning-work-day is already {}:{:02}!", hour, minute), &conf);
+        } else {
+            println!("setting beginning-work-day to {}:{:02}!", hour, minute);
+            conf.beginning_work_day = beginning_work_day;
+            write = true;
+        }
+    }
     if matches.is_present("day-length") {
         did_something = true;
         if let Some(v) = matches.value_of("day-length") {
@@ -346,26 +394,19 @@ pub fn run(matches: &ArgMatches) {
             did_something = true;
         }
         let attributes = vec![
-            vec![String::from("day-length"), format!("{}", conf.day_length)],
-            vec![String::from("editor"), {
-                match conf.effective_editor() {
-                    Some((mut editor, source)) => {
-                        if let Some(source) = source {
-                            for _ in 0..footnotes.len() + 1 {
-                                editor.push_str("*");
-                            }
-                            footnotes.push(source);
-                        }
-                        editor
-                    }
-                    _ => String::from(""),
-                }
-            }],
+            vec![String::from("precision"), format!("{}", conf.precision)],
+            vec![
+                String::from("max-width"),
+                if conf.max_width.is_some() {
+                    format!("{}", conf.max_width.unwrap())
+                } else {
+                    String::from("")
+                },
+            ],
             vec![
                 String::from("length-pay-period"),
                 format!("{}", conf.length_pay_period),
             ],
-            vec![String::from("precision"), format!("{}", conf.precision)],
             vec![
                 String::from("start-pay-period"),
                 format!(
@@ -384,13 +425,27 @@ pub fn run(matches: &ArgMatches) {
             ],
             vec![String::from("workdays"), conf.serialize_workdays()],
             vec![
-                String::from("max-width"),
-                if conf.max_width.is_some() {
-                    format!("{}", conf.max_width.unwrap())
-                } else {
-                    String::from("")
-                },
+                String::from("beginning-work-day"),
+                format!(
+                    "{}:{:02}",
+                    conf.beginning_work_day.0, conf.beginning_work_day.1
+                ),
             ],
+            vec![String::from("day-length"), format!("{}", conf.day_length)],
+            vec![String::from("editor"), {
+                match conf.effective_editor() {
+                    Some((mut editor, source)) => {
+                        if let Some(source) = source {
+                            for _ in 0..footnotes.len() + 1 {
+                                editor.push_str("*");
+                            }
+                            footnotes.push(source);
+                        }
+                        editor
+                    }
+                    _ => String::from(""),
+                }
+            }],
             vec![String::from("color"), {
                 let (c, source) = conf.effective_color();
                 let mut color = format!("{}", c);
@@ -443,6 +498,7 @@ pub struct Configuration {
     pub precision: u8,
     pub start_pay_period: Option<NaiveDate>,
     pub sunday_begins_week: bool,
+    pub beginning_work_day: (usize, usize),
     color: Option<bool>,
     pub workdays: u8, // bit flags
     pub max_width: Option<usize>,
@@ -489,7 +545,16 @@ impl Configuration {
             } else {
                 None
             };
+            let beginning_work_day = if let Some(s) =
+                ini.get_from(Some("time"), "beginning-work-day")
+            {
+                let parts: Vec<usize> = s.split(":").map(|s| s.parse::<usize>().unwrap()).collect();
+                (parts[0], parts[1])
+            } else {
+                BEGINNING_WORK_DAY.clone()
+            };
             Configuration {
+                beginning_work_day,
                 day_length: ini
                     .get_from_or(Some("time"), "day-length", DAY_LENGTH)
                     .parse()
@@ -526,6 +591,7 @@ impl Configuration {
                 day_length: DAY_LENGTH.parse().unwrap(),
                 editor: None,
                 length_pay_period: LENGTH_PAY_PERIOD.parse().unwrap(),
+                beginning_work_day: BEGINNING_WORK_DAY.clone(),
                 precision: PRECISION.parse().unwrap(),
                 start_pay_period: None,
                 color: None,
@@ -540,6 +606,15 @@ impl Configuration {
         if self.day_length != DAY_LENGTH.parse::<f32>().unwrap() {
             ini.with_section(Some("time"))
                 .set("day-length", format!("{}", self.day_length));
+        }
+        if self.beginning_work_day != BEGINNING_WORK_DAY {
+            ini.with_section(Some("time")).set(
+                "beginning-work-day",
+                format!(
+                    "{}:{}",
+                    self.beginning_work_day.0, self.beginning_work_day.1
+                ),
+            );
         }
         if let Some(s) = self.editor.as_ref() {
             ini.with_section(Some("external")).set("editor", s);
