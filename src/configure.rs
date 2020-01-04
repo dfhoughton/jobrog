@@ -629,4 +629,12 @@ impl Configuration {
         let i = (date.weekday().number_from_sunday() - 1) as u8;
         self.workdays & (1 << i) > 0
     }
+    pub fn two_timer_config(&self) -> Option<Config> {
+        Some(
+            Config::new()
+                .monday_starts_week(!self.sunday_begins_week)
+                .pay_period_start(self.start_pay_period)
+                .pay_period_length(self.length_pay_period),
+        )
+    }
 }

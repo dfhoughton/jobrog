@@ -351,12 +351,12 @@ pub fn display_events(
 
 pub fn warn<T: ToString>(msg: T, conf: &Configuration) {
     let color = Color::new(&conf);
-    eprintln!("{}", color.purple(msg));
+    eprintln!("{} {}", color.purple("warning:"), msg.to_string());
 }
 
 pub fn fatal<T: ToString>(msg: T, conf: &Configuration) {
     let color = Color::new(&conf);
-    eprintln!("{} {}", color.red("ERROR:"), msg.to_string());
+    eprintln!("{} {}", color.bold(color.red("error:")), msg.to_string());
     std::process::exit(1);
 }
 
@@ -448,6 +448,7 @@ pub fn init() {
 // putting this into a common struct so we can easily turn color off
 pub struct Color<'a> {
     noop: bool,
+    #[allow(dead_code)] // saving this for when the color of individual elements is configurable
     conf: &'a Configuration,
 }
 
@@ -458,7 +459,7 @@ impl<'a> Color<'a> {
             noop: !conf.effective_color().0,
         }
     }
-    pub fn heading<T: ToString>(&self, text: T) -> String {
+    pub fn bold<T: ToString>(&self, text: T) -> String {
         if self.noop {
             return text.to_string();
         }

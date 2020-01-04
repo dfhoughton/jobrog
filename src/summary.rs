@@ -8,7 +8,7 @@ use crate::util::{
     fatal, remainder, warn,
 };
 use clap::{App, Arg, ArgMatches, SubCommand};
-use two_timer::{parsable, parse, Config};
+use two_timer::{parsable, parse};
 
 pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
     mast.subcommand(common_search_or_filter_arguments(
@@ -57,11 +57,7 @@ pub fn run(matches: &ArgMatches) {
             &configuration,
         );
     }
-    let conf = Config::new()
-        .monday_starts_week(!configuration.sunday_begins_week)
-        .pay_period_start(configuration.start_pay_period)
-        .pay_period_length(configuration.length_pay_period);
-    if let Ok((start, end, _)) = parse(&phrase, Some(conf)) {
+    if let Ok((start, end, _)) = parse(&phrase, configuration.two_timer_config()) {
         let filter = Filter::new(matches);
         let mut reader = Log::new(None).expect("could not read log");
         check_for_ongoing_event(&mut reader, &configuration);
