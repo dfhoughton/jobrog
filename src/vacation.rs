@@ -18,6 +18,7 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 use two_timer::{parsable, parse};
 
+// used in two places, so it's factored out
 fn over_as_of_rx() -> Regex {
     Regex::new(r"\A(\d+)(?:\s+(\S.*?)\s*)?\z").unwrap()
 }
@@ -33,7 +34,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                 .short("a")
                 .long("add")
                 .help("add a vacation record (default action)")
-                .conflicts_with_all(&["delete", "over-as-of", "list"])
+                .conflicts_with_all(&["delete", "over-as-of", "list", "clear"])
                 .display_order(0)
             )
             .arg(
@@ -42,7 +43,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                 .long("list")
                 .help("list known vacation periods")
                 .long_help("Just provide an enumerated list of the known vacation periods and do nothing further. This is a useful, probably necessary, precursor to deleting a vacation period.")
-                .conflicts_with_all(&["delete", "over-as-of", "tag", "add"])
+                .conflicts_with_all(&["delete", "over-as-of", "tag", "add", "clear"])
                 .display_order(1)
             )
             .arg(
@@ -66,7 +67,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                 .long_help("A tag is just a short description, like 'religious', or 'family'. Add a tag to a vacation to facilitate filtering during log summaries.")
                 .value_name("tag")
                 .validator(|v| if some_nws(&v) {Ok(())} else {Err(format!("tag {:?} needs some non-whitespace character", v))})
-                .conflicts_with_all(&["list", "delete", "over-as-of"])
+                .conflicts_with_all(&["list", "delete", "over-as-of", "clear"])
                 .display_order(3)
             )
             .arg(
@@ -116,7 +117,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                         Err(String::from("bad format"))
                     }
                 })
-                .conflicts_with_all(&["delete", "list", "add", "tag"])
+                .conflicts_with_all(&["delete", "list", "add", "tag", "clear"])
                 .display_order(6)
             )
             .arg(
@@ -127,7 +128,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                 .long_help("If you wish to delete a single vacation record altogether, use --delete. You must identify the affected vacation by its number in the enumerated list (see --list).")
                 .value_name("number")
                 .validator(|v| if v.parse::<usize>().is_ok() { Ok(())} else {Err(format!("could not parse {} as a vacation record index", v))})
-                .conflicts_with_all(&["over-as-of", "list", "add", "tag"])
+                .conflicts_with_all(&["over-as-of", "list", "add", "tag", "clear"])
                 .multiple(true)
                 .number_of_values(1)
                 .display_order(7)
@@ -136,6 +137,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                 Arg::with_name("clear")
                 .long("clear")
                 .help("delete all vacation records")
+                .conflicts_with_all(&["over-as-of", "list", "add", "tag", "delete"])
                 .display_order(8)
             )
             .setting(AppSettings::TrailingVarArg)
@@ -497,14 +499,12 @@ impl VacationController {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 enum Type {
     Flex,
     Fixed,
     Ordinary,
 }
-
-impl Eq for Type {}
 
 impl Type {
     fn from_str(t: &str) -> Type {
@@ -539,14 +539,12 @@ impl Type {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 enum Repetition {
     Annual,
     Monthly,
     Never,
 }
-
-impl Eq for Repetition {}
 
 impl Repetition {
     fn from_str(t: &str) -> Repetition {
@@ -581,7 +579,7 @@ impl Repetition {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 struct Vacation {
     description: String,
     tags: Vec<String>,
@@ -592,8 +590,6 @@ struct Vacation {
     effective_as_of: Option<NaiveDateTime>,
     over_as_of: Option<NaiveDateTime>,
 }
-
-impl Eq for Vacation {}
 
 // remove escape sequences
 fn unescape_description(description: &str) -> String {
