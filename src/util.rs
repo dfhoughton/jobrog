@@ -332,14 +332,14 @@ pub fn display_events(
                         } else {
                             cell.to_owned()
                         }
-                    },
+                    }
                     1 => {
                         if cell_num == 0 && untagged_duration > 0.0 {
                             color.red(cell)
                         } else {
                             cell.to_owned()
                         }
-                    },
+                    }
                     _ => cell.to_owned(),
                 };
                 print!("{}{}", margin, cell);
@@ -425,11 +425,8 @@ pub fn init() {
     if !base_dir().as_path().exists() {
         create_dir(base_dir().to_str().unwrap()).expect("could not create base directory");
         println!(
-            "{}",
-            Green.paint(&format!(
-                "initialized hidden directory {} for Job Log",
-                base_dir().to_str().unwrap()
-            ))
+            "initialized hidden directory {} for Job Log",
+            base_dir().to_str().unwrap()
         );
     }
     if !log_path().as_path().exists() {
@@ -450,48 +447,49 @@ pub fn init() {
 
 // putting this into a common struct so we can easily turn color off
 pub struct Color<'a> {
+    noop: bool,
     conf: &'a Configuration,
 }
 
 impl<'a> Color<'a> {
     pub fn new(conf: &'a Configuration) -> Color<'a> {
-        Color { conf }
-    }
-    fn nogo(&self) -> bool {
-        self.conf.effective_color().0 == "false"
+        Color {
+            conf,
+            noop: !conf.effective_color().0,
+        }
     }
     pub fn heading<T: ToString>(&self, text: T) -> String {
-        if self.nogo() {
+        if self.noop {
             return text.to_string();
         }
         format!("{}", Style::new().bold().paint(text.to_string()))
     }
     pub fn cyan<T: ToString>(&self, text: T) -> String {
-        if self.nogo() {
+        if self.noop {
             return text.to_string();
         }
         format!("{}", Cyan.paint(text.to_string()))
     }
     pub fn green<T: ToString>(&self, text: T) -> String {
-        if self.nogo() {
+        if self.noop {
             return text.to_string();
         }
         format!("{}", Green.paint(text.to_string()))
     }
     pub fn blue<T: ToString>(&self, text: T) -> String {
-        if self.nogo() {
+        if self.noop {
             return text.to_string();
         }
         format!("{}", Blue.paint(text.to_string()))
     }
     pub fn red<T: ToString>(&self, text: T) -> String {
-        if self.nogo() {
+        if self.noop {
             return text.to_string();
         }
         format!("{}", Red.paint(text.to_string()))
     }
     pub fn purple<T: ToString>(&self, text: T) -> String {
-        if self.nogo() {
+        if self.noop {
             return text.to_string();
         }
         format!("{}", Purple.paint(text.to_string()))

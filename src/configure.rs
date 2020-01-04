@@ -79,11 +79,11 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
             .aliases(&["c", "co", "con", "conf", "confi", "config", "configu", "configur"])
             .about("set or display configuration parameters")
             .after_help("Set or display configuration parameters that control date interpretation, log summarization, etc.")
+            // NOTE I'm not using default_value here so we can identify when the user misuses the subcommand and should be prompted
             .arg(
                 Arg::with_name("precision")
                 .long("precision")
-                .help("decimal places of precision in display of time")
-                .default_value(PRECISION)
+                .help("decimal places of precision in display of time; default value: 2")
                 .long_help("The number of decimal places of precision used in the display of lengths of periods in numbers of hours. If the number is 0, probably not what you want, all periods will be rounded to a whole number of hours. The default value is 2.")
                 .possible_values(&["0", "1", "2", "3"])
                 .value_name("int")
@@ -99,24 +99,21 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
             .arg(
                 Arg::with_name("sunday-begins-week")
                 .long("sunday-begins-week")
-                .help("whether Sunday should be considered the first day of the week")
-                .default_value(SUNDAY_BEGINS_WEEK)
+                .help("whether Sunday should be considered the first day of the week; default value; true")
                 .possible_values(&["true", "false"])
                 .value_name("bool")
             )
             .arg(
                 Arg::with_name("length-pay-period")
                 .long("length-pay-period")
-                .help("the number of days in a pay period")
-                .default_value(LENGTH_PAY_PERIOD)
+                .help("the number of days in a pay period; default value: 14")
                 .validator(valid_length_pay_period)
                 .value_name("int")
             )
             .arg(
                 Arg::with_name("day-length")
-                .long("day-length")
+                .long("day-length; default value: 8")
                 .help("expected number of hours in a workday")
-                .default_value(DAY_LENGTH)
                 .validator(valid_day_length)
                 .value_name("num")
             )
@@ -124,8 +121,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                 Arg::with_name("workdays")
                 .long("workdays")
                 .help("which days you are expected to work; default value: MTWHF")
-                .long_help("Workdays during the week represented as a subset of SMTWHFA, where S is Sunday and A is Saturday, etc.")
-                .default_value(WORKDAYS)
+                .long_help("Workdays during the week represented as a subset of SMTWHFA, where S is Sunday and A is Saturday, etc. Default value: MTWHF.")
                 .validator(|v| if Regex::new(r"\A[SMTWHFA]+\z").unwrap().is_match(&v) {Ok(())} else {Err(format!("must contain only the letters SMTWHFA, where S means Sunday and A, Saturday, etc."))})
                 .value_name("days")
             )
@@ -146,10 +142,9 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
             .arg(
                 Arg::with_name("color")
                 .long("color")
-                .help("whether to use colors")
-                .default_value("true")
+                .help("whether to use colors; default value: true")
+                .long_help("Color variation helps one parse information quickly, but if you don't want it, or the ANSI color codes that produce it cause you trouble, you can turn it off. If you haven't set this parameter and you don't have the NO_COLOR environment variable, Job Log will use color.")
                 .possible_values(&["true", "false"])
-                .validator(valid_max_width)
                 .value_name("bool")
             )
             .arg(
@@ -216,13 +211,9 @@ pub fn run(matches: &ArgMatches) {
         did_something = true;
         if let Some(v) = matches.value_of("color") {
             let v: bool = v.parse().unwrap();
-            if v == conf.sunday_begins_week {
-                warn(format!("color is already {}!", v), &conf);
-            } else {
-                println!("setting color to {}!", v);
-                conf.color = Some(v);
-                write = true;
-            }
+            println!("setting color to {}!", v);
+            conf.color = Some(v);
+            write = true;
         }
     }
     if matches.is_present("length-pay-period") {
@@ -295,6 +286,10 @@ pub fn run(matches: &ArgMatches) {
                 }
                 "editor" => {
                     conf.editor = None;
+                    write = true;
+                }
+                "color" => {
+                    conf.color = None;
                     write = true;
                 }
                 "length-pay-period" => {
@@ -387,7 +382,8 @@ pub fn run(matches: &ArgMatches) {
                 },
             ],
             vec![String::from("color"), {
-                let (mut color, source) = conf.effective_color();
+                let (c, source) = conf.effective_color();
+                let mut color = format!("{}", c);
                 if let Some(source) = source {
                     for _ in 0..footnotes.len() + 1 {
                         color.push_str("*");
@@ -429,7 +425,7 @@ pub fn run(matches: &ArgMatches) {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Configuration {
     pub day_length: f32,
     pub editor: Option<String>,
@@ -437,9 +433,10 @@ pub struct Configuration {
     pub precision: u8,
     pub start_pay_period: Option<NaiveDate>,
     pub sunday_begins_week: bool,
-    pub color: Option<bool>,
+    color: Option<bool>,
     pub workdays: u8, // bit flags
     pub max_width: Option<usize>,
+    ini: Option<Ini>,
 }
 
 impl Configuration {
@@ -511,9 +508,11 @@ impl Configuration {
                 max_width: ini
                     .get_from(Some("summary"), "max-width")
                     .and_then(|s| Some(s.parse().unwrap())),
+                ini: Some(ini),
             }
         } else {
             Configuration {
+                ini: None,
                 day_length: DAY_LENGTH.parse().unwrap(),
                 editor: None,
                 length_pay_period: LENGTH_PAY_PERIOD.parse().unwrap(),
@@ -554,6 +553,10 @@ impl Configuration {
             ini.with_section(Some("time"))
                 .set("sunday-begins-week", format!("{}", self.sunday_begins_week));
         }
+        if let Some(c) = self.color {
+            ini.with_section(Some("color"))
+                .set("color", format!("{}", c));
+        }
         let s = self.serialize_workdays();
         if s != WORKDAYS {
             ini.with_section(Some("time")).set("workdays", s);
@@ -588,14 +591,14 @@ impl Configuration {
             }
         }
     }
-    pub fn effective_color(&self) -> (String, Option<String>) {
-        if let Some(v) = self.color {
-            (format!("{}", v), None)
+    pub fn effective_color(&self) -> (bool, Option<String>) {
+        if let Some(c) = self.color {
+            (c, None)
         } else {
             let var = String::from("NO_COLOR");
             match env::var(&var) {
-                Ok(_) => (String::from("false"), Some(var)),
-                _ => (format!("{}", COLOR == "true"), None),
+                Ok(_) => (false, Some(var)),
+                _ => (COLOR == "true", None),
             }
         }
     }
