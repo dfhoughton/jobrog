@@ -460,7 +460,7 @@ pub fn run(matches: &ArgMatches) {
         ];
         let mut table = Colonnade::new(2, conf.width()).unwrap();
         table.columns[1].alignment(Alignment::Right).left_margin(2);
-        let odd_line = Style::new().on(Cyan).fg(Black);
+        let odd_line = Style::new().on(Cyan).fg(Black); // FIXME use color object
         for (i, line) in table.tabulate(&attributes).unwrap().iter().enumerate() {
             if i % 2 == 1 {
                 println!("{}", odd_line.paint(line))
