@@ -12,6 +12,7 @@ pub mod truncate;
 pub mod util;
 pub mod when;
 pub mod vacation;
+pub mod parse;
 extern crate clap;
 #[macro_use]
 extern crate pidgin;

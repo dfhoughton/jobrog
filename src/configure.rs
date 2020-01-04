@@ -23,6 +23,7 @@ pub const PRECISION: &str = "2";
 pub const SUNDAY_BEGINS_WEEK: &str = "true";
 pub const LENGTH_PAY_PERIOD: &str = "14";
 pub const DAY_LENGTH: &str = "8";
+pub const BEGINNING_WORK_DAY: &str = "9:00";
 pub const WORKDAYS: &str = "MTWHF";
 pub const COLOR: &str = "true";
 
@@ -70,6 +71,15 @@ fn valid_max_width(v: String) -> Result<(), String> {
         }
     } else {
         Err(format!("some whole number of columns expected"))
+    }
+}
+
+fn valid_beginning_work_day(v: String) -> Result<(), String> {
+    let rx = Regex::new(r"\A([1-9]\d?)(?::([0-6]\d))?\z").unwrap();
+    if let Some(captures) = rx.captures(&v) {
+        Ok(())
+    } else {
+        Err(String::from(""))
     }
 }
 

@@ -465,6 +465,12 @@ impl<'a> Color<'a> {
         }
         format!("{}", Style::new().bold().paint(text.to_string()))
     }
+    pub fn italic<T: ToString>(&self, text: T) -> String {
+        if self.noop {
+            return text.to_string();
+        }
+        format!("{}", Style::new().italic().paint(text.to_string()))
+    }
     pub fn cyan<T: ToString>(&self, text: T) -> String {
         if self.noop {
             return text.to_string();
