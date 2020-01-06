@@ -173,7 +173,7 @@ fn time_string(this_time: &Option<NaiveDateTime>, last_time: &Option<NaiveDateTi
 }
 
 fn duration_string(duration: f32, precision: u8) -> String {
-    format!("{0:.1$}", duration / 60.0, (precision as usize))
+    format!("{0:.1$}", duration / ( 60.0 * 60.0), (precision as usize))
 }
 
 fn date_string(date: &NaiveDate, same_year: bool) -> String {

@@ -1451,8 +1451,7 @@ impl Event {
     // the second parameter is necessary for ongoing tasks
     pub fn duration(&self, now: &NaiveDateTime) -> f32 {
         let end = self.end.as_ref().unwrap_or(now);
-        let delta = (end.timestamp() - self.start.timestamp()) as f32;
-        delta / 60.0
+        (end.timestamp() - self.start.timestamp()) as f32
     }
     // split an event into two at a time boundary
     fn split(self, time: NaiveDateTime) -> (Self, Self) {

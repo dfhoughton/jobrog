@@ -710,7 +710,7 @@ impl Configuration {
         }
         s
     }
-    pub fn is_workday(&self, date: NaiveDate) -> bool {
+    pub fn is_workday(&self, date: &NaiveDate) -> bool {
         let i = (date.weekday().number_from_sunday() - 1) as u8;
         self.workdays & (1 << i) > 0
     }

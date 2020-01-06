@@ -6,21 +6,47 @@ extern crate regex;
 extern crate two_timer;
 
 use crate::configure::Configuration;
-use crate::log::{parse_tags, parse_timestamp, tags, timestamp};
+use crate::log::{parse_tags, parse_timestamp, tags, timestamp, Event};
 use crate::util::{base_dir, fatal, remainder, some_nws, warn, Color};
-use chrono::{Duration, Local, NaiveDateTime};
+use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, Timelike};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use colonnade::{Alignment, Colonnade};
 use pidgin::{Grammar, Matcher};
 use regex::Regex;
+use std::cmp::Ordering;
 use std::fs::{copy, File};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 use two_timer::{parsable, parse};
 
-// used in two places, so it's factored out
+// used in three places, so it's factored out
 fn over_as_of_rx() -> Regex {
     Regex::new(r"\A(\d+)(?:\s+(\S.*?)\s*)?\z").unwrap()
+}
+
+fn number_date_validator(v: String) -> Result<(), String> {
+    if let Some(captures) = over_as_of_rx().captures(&v) {
+        let index = captures[1].to_owned();
+        if index.parse::<usize>().is_ok() {
+            if let Some(s) = captures.get(2) {
+                let date = s.as_str();
+                if parsable(date) {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "data expression in '{}', '{}', cannot be parsed",
+                        v, date
+                    ))
+                }
+            } else {
+                Ok(())
+            }
+        } else {
+            Err(String::from("bad format for number"))
+        }
+    } else {
+        Err(String::from("bad format"))
+    }
 }
 
 pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
@@ -96,29 +122,19 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                 .help("indicate the end of a repeating vacation")
                 .long_help("If you come to lose a vacation that repeated at intervals -- if you change jobs, for example, and lose a holiday -- this allows you to indicate when the repetition stops. You must identify the affected vacation by its number in the enumerated list (see --list). The date is 'today' by default.")
                 .value_name("number [date]")
-                .validator(|v|{
-                    if let Some(captures) = over_as_of_rx().captures(&v) {
-                        let index = captures[1].to_owned();
-                        if index.parse::<usize>().is_ok() {
-                            if let Some(s) = captures.get(2) {
-                                let date = s.as_str();
-                                if parsable(date) {
-                                    Ok(())
-                                } else {
-                                    Err(format!("data expression in '{}', '{}', cannot be parsed", v, date))
-                                }
-                            } else {
-                                Ok(())
-                            }
-                        } else {
-                            Err(String::from("bad format for number"))
-                        }
-                    } else {
-                        Err(String::from("bad format"))
-                    }
-                })
+                .validator(number_date_validator)
                 .conflicts_with_all(&["delete", "list", "add", "tag", "clear"])
                 .display_order(6)
+            )
+            .arg(
+                Arg::with_name("effective-as-of")
+                .long("effective-as-of")
+                .help("indicate when a repeating vacation begins repeating")
+                .long_help("If you gain a vacation that repeats at intervals -- if you change jobs, for example, and gain a holiday -- this allows you to indicate when the repetition begins. You must identify the affected vacation by its number in the enumerated list (see --list). The date is 'today' by default. If you add a new repeating vacation, it will by default become effective immediately. This option is chiefly useful when adding a repeating vacation retroactively.")
+                .value_name("number [date]")
+                .validator(number_date_validator)
+                .conflicts_with_all(&["delete", "list", "add", "tag", "clear"])
+                .display_order(7)
             )
             .arg(
                 Arg::with_name("delete")
@@ -131,14 +147,14 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                 .conflicts_with_all(&["over-as-of", "list", "add", "tag", "clear"])
                 .multiple(true)
                 .number_of_values(1)
-                .display_order(7)
+                .display_order(8)
             )
             .arg(
                 Arg::with_name("clear")
                 .long("clear")
                 .help("delete all vacation records")
                 .conflicts_with_all(&["over-as-of", "list", "add", "tag", "delete"])
-                .display_order(8)
+                .display_order(9)
             )
             .setting(AppSettings::TrailingVarArg)
             .arg(
@@ -262,6 +278,20 @@ pub fn run(matches: &ArgMatches) {
             Ok(s) => println!("{}", s),
             Err(s) => fatal(s, &conf),
         }
+    } else if matches.is_present("effective-as-of") {
+        let captures = over_as_of_rx()
+            .captures(&matches.value_of("effective-as-of").unwrap())
+            .unwrap();
+        let index = captures[1].parse::<usize>().unwrap();
+        let date = captures
+            .get(2)
+            .and_then(|m| Some(m.as_str()))
+            .unwrap_or("today");
+        let (date, _, _) = parse(date, conf.two_timer_config()).unwrap();
+        match controller.set_effective_as_of(index, &date) {
+            Ok(s) => println!("{}", s),
+            Err(s) => fatal(s, &conf),
+        }
     } else if matches.is_present("delete") || matches.is_present("clear") {
         let mut rows = if matches.is_present("clear") {
             controller
@@ -359,14 +389,14 @@ fn vacation_path_bak() -> PathBuf {
 }
 
 // basically a namespace for vacation-related functions
-struct VacationController {
+pub struct VacationController {
     vacations: Vec<Vacation>,
     changed: bool,
 }
 
 impl VacationController {
     // fetch vacation information in from file
-    fn read() -> VacationController {
+    pub fn read() -> VacationController {
         if vacation_path().as_path().exists() {
             let file = File::open(vacation_path()).expect("could not open vacation file");
             let reader = BufReader::new(file);
@@ -385,6 +415,76 @@ impl VacationController {
                 changed: false,
             }
         }
+    }
+    pub fn add_vacation_times(
+        &self,
+        start: &NaiveDateTime,
+        end: &NaiveDateTime,
+        mut events: Vec<Event>, // these events *must be grouped by day*
+        conf: &Configuration,
+    ) -> Vec<Event> {
+        if self.vacations.is_empty() {
+            return events;
+        }
+        let mut new_events = Vec::new();
+        let mut date = start.date();
+        let end_date = end.date();
+        let now = Local::now().naive_local();
+        let sorted_records = self.sorted_vacation_records();
+        while date < end_date {
+            let mut seconds_worked = 0;
+            while events.len() > 0 && events[0].start.date() == date {
+                seconds_worked += events[0].duration(&now) as usize;
+                new_events.push(events.remove(0));
+            }
+            if conf.is_workday(&date) {
+                // only check for vacation time on workdays
+                let s = date.and_hms(0, 0, 0);
+                let e = s + Duration::days(1);
+                // make sure we don't fetch in vacation time beyond the end of the last moment
+                let e = if &e > end { end } else { &e };
+                let start_workday = start_workday(&s, conf);
+                let end_workday = start_workday + Duration::hours(conf.day_length as i64);
+                let end_workday = if &end_workday > e { e } else { &end_workday };
+                let mut unworked_seconds = ((end_workday.timestamp() - start_workday.timestamp())
+                    as usize)
+                    - seconds_worked;
+                for v in &sorted_records {
+                    if let Some(event) = v.overlap(&s, e, unworked_seconds, conf) {
+                        let duration = event.duration(&now) as usize;
+                        if duration == 0 {
+                            break;
+                        }
+                        unworked_seconds -= duration;
+                        new_events.push(event);
+                    }
+                }
+            }
+            date = date + Duration::days(1);
+        }
+        new_events.sort_by(|a, b| {
+            if a.start == b.start {
+                (a.duration(&now) as usize).cmp(&(b.duration(&now) as usize))
+            } else {
+                a.start.cmp(&b.start)
+            }
+        });
+        new_events
+    }
+    fn sorted_vacation_records(&self) -> Vec<&Vacation> {
+        let mut sorted_records: Vec<&Vacation> = self.vacations.iter().collect();
+        sorted_records.sort_by(|a, b| {
+            if a.kind == b.kind {
+                if a.start == b.start {
+                    a.end.cmp(&b.end)
+                } else {
+                    a.start.cmp(&b.start)
+                }
+            } else {
+                a.kind.cmp(&b.kind)
+            }
+        });
+        sorted_records
     }
     // serialize vacation records back to file
     fn write(&self) {
@@ -497,9 +597,33 @@ impl VacationController {
             ))
         }
     }
+    fn set_effective_as_of(
+        &mut self,
+        index: usize,
+        date: &NaiveDateTime,
+    ) -> Result<String, String> {
+        if index == 0 || self.vacations.len() >= index - 1 {
+            return Err(format!("there is no record vacation number {}", index));
+        }
+        let index = index - 1;
+        if self.vacations[index].repeating() {
+            self.vacations[index].effective_as_of = Some(date.clone());
+            self.changed = true;
+            Ok(format!(
+                "repetition effective as of {}: {}",
+                date.format("%F"),
+                self.vacations[index].describe()
+            ))
+        } else {
+            Err(format!(
+                "does not repeat: {}",
+                self.vacations[index].describe()
+            ))
+        }
+    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq)]
 enum Type {
     Flex,
     Fixed,
@@ -536,6 +660,38 @@ impl Type {
             Type::Fixed => "fixed",
             Type::Ordinary => "",
         }
+    }
+}
+
+impl PartialOrd for Type {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match self {
+            Type::Fixed => match other {
+                Type::Fixed => Some(Ordering::Equal),
+                Type::Ordinary => Some(Ordering::Greater),
+                _ => Some(Ordering::Less),
+            },
+            Type::Ordinary => match other {
+                Type::Ordinary => Some(Ordering::Equal),
+                _ => Some(Ordering::Greater),
+            },
+            Type::Flex => match other {
+                Type::Flex => Some(Ordering::Equal),
+                _ => Some(Ordering::Less),
+            },
+        }
+    }
+}
+
+impl Ord for Type {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.partial_cmp(other).unwrap()
+    }
+}
+
+impl PartialEq for Type {
+    fn eq(&self, other: &Self) -> bool {
+        self == other
     }
 }
 
@@ -799,4 +955,149 @@ impl Vacation {
             self.end_description()
         )
     }
+    // return an "event" representing an overlap of a vacation record with this span of time
+    #[allow(dead_code)]
+    fn overlap(
+        &self,
+        start: &NaiveDateTime, // the start of the interval which might overlap vacation
+        end: &NaiveDateTime,   // the end of the interval
+        available_seconds: usize, // for flex time, the number of expected seconds of work left in the given workday
+        conf: &Configuration,
+    ) -> Option<Event> {
+        let range: Option<(NaiveDateTime, NaiveDateTime)> = match self.kind {
+            Type::Fixed => available_overlap((&self.start, &self.end), (start, end)),
+            Type::Flex => {
+                if let Some((s, e)) = available_overlap((&self.start, &self.end), (start, end)) {
+                    let (s, e) = fit_range_to_workday(&s, &e, conf);
+                    let end_available = s + Duration::seconds(available_seconds as i64);
+                    // we don't want the flex end time to be greater than the end parameter, though
+                    let mut end_times = vec![&e, &end_available, end];
+                    end_times.sort_unstable();
+                    let e = end_times[0].clone();
+                    Some((s, e))
+                } else {
+                    None
+                }
+            }
+            _ => {
+                let maybe_range = match self.repetition {
+                    Repetition::Never => Some((self.start.clone(), self.end.clone())),
+                    Repetition::Annual => {
+                        if self.effective_as_of.as_ref().unwrap_or(start) > end
+                            || self.over_as_of.as_ref().unwrap_or(end) < start
+                        {
+                            None
+                        } else {
+                            let d1 = NaiveDate::from_ymd(
+                                start.year(),
+                                self.start.month(),
+                                self.start.day(),
+                            )
+                            .and_hms(
+                                self.start.hour(),
+                                self.start.minute(),
+                                self.start.second(),
+                            );
+                            let d2 =
+                                NaiveDate::from_ymd(end.year(), self.end.month(), self.end.day())
+                                    .and_hms(self.end.hour(), self.end.minute(), self.end.second());
+                            Some((d1, d2))
+                        }
+                    }
+                    Repetition::Monthly => {
+                        if self.effective_as_of.as_ref().unwrap_or(start) > end
+                            || self.over_as_of.as_ref().unwrap_or(end) < start
+                        {
+                            None
+                        } else {
+                            let d1 =
+                                NaiveDate::from_ymd(start.year(), start.month(), self.start.day())
+                                    .and_hms(
+                                        self.start.hour(),
+                                        self.start.minute(),
+                                        self.start.second(),
+                                    );
+                            let d2 = NaiveDate::from_ymd(end.year(), end.month(), self.end.day())
+                                .and_hms(self.end.hour(), self.end.minute(), self.end.second());
+                            Some((d1, d2))
+                        }
+                    }
+                };
+                if let Some((adjusted_start, adjusted_end)) = maybe_range {
+                    if let Some((s, e)) =
+                        available_overlap((&adjusted_start, &adjusted_end), (start, end))
+                    {
+                        let (s, e) = fit_range_to_workday(&s, &e, conf);
+                        // if the end parameter is now, we cut it off
+                        let e = if &e > end { end.clone() } else { e };
+                        Some((s, e))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+        };
+        if let Some((s, e)) = range {
+            Some(Event {
+                description: self.description.clone(),
+                tags: self.tags.clone(),
+                vacation: true,
+                start: s,
+                end: Some(e),
+                vacation_type: Some(self.kind.to_s().to_owned()),
+                start_overlap: false,
+                end_overlap: false,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+fn any_overlap(
+    interval_1: (&NaiveDateTime, &NaiveDateTime),
+    interval_2: (&NaiveDateTime, &NaiveDateTime),
+) -> bool {
+    interval_1.0 > interval_2.1 && interval_2.0 > interval_1.1
+}
+
+fn available_overlap(
+    interval_1: (&NaiveDateTime, &NaiveDateTime),
+    interval_2: (&NaiveDateTime, &NaiveDateTime),
+) -> Option<(NaiveDateTime, NaiveDateTime)> {
+    if any_overlap(interval_1, interval_2) {
+        let s = if interval_1.0 < interval_2.0 {
+            interval_2.0
+        } else {
+            interval_1.0
+        }; // the greater of the two starts
+        let e = if interval_1.1 < interval_2.1 {
+            interval_1.1
+        } else {
+            interval_2.1
+        }; // the lesser of the two ends
+        Some((s.clone(), e.clone()))
+    } else {
+        None
+    }
+}
+
+fn fit_range_to_workday(
+    start: &NaiveDateTime,
+    end: &NaiveDateTime,
+    conf: &Configuration,
+) -> (NaiveDateTime, NaiveDateTime) {
+    let wd_start = start_workday(start, conf);
+    let wd_end = wd_start + Duration::hours(conf.day_length as i64);
+    available_overlap((start, end), (&wd_start, &wd_end)).unwrap()
+}
+
+fn start_workday(time: &NaiveDateTime, conf: &Configuration) -> NaiveDateTime {
+    time.date().and_hms(
+        (conf.beginning_work_day.0 as u32),
+        (conf.beginning_work_day.1 as u32),
+        0,
+    )
 }

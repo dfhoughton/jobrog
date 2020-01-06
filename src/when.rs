@@ -3,11 +3,12 @@ extern crate clap;
 extern crate two_timer;
 
 use crate::configure::Configuration;
-use crate::log::Log;
+use crate::log::{Event, Log};
 use crate::util::fatal;
+use crate::vacation::VacationController;
 use chrono::{Duration, Local, NaiveDate, NaiveDateTime};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
-use two_timer::{parse, Config};
+use two_timer::parse;
 
 pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
     mast.subcommand(
@@ -32,17 +33,13 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
 
 pub fn run(matches: &ArgMatches) {
     let configuration = Configuration::read();
-    let conf = Config::new()
-        .monday_starts_week(!configuration.sunday_begins_week)
-        .pay_period_start(configuration.start_pay_period)
-        .pay_period_length(configuration.length_pay_period);
     let phrase = matches
         .values_of("period")
         .unwrap()
         .collect::<Vec<&str>>()
         .join(" ");
     println!("when: {}", phrase);
-    match parse(&phrase, Some(conf)) {
+    match parse(&phrase, configuration.two_timer_config()) {
         Ok((start, end, _)) => {
             let now = Local::now().naive_local();
             if now <= start {
@@ -64,21 +61,29 @@ pub fn run(matches: &ArgMatches) {
             } else {
                 let mut reader = Log::new(None).expect("could not read log");
                 let events = reader.events_in_range(&start, &now);
+                let events = Event::gather_by_day(events, &end);
+                let events = VacationController::read().add_vacation_times(
+                    &start,
+                    &end,
+                    events,
+                    &configuration,
+                );
                 let mut hours_required = 0.0;
-                let mut hours_worked = 0.0;
+                let mut seconds_worked = 0.0;
                 let mut last_workday: Option<NaiveDate> = None;
                 for e in events {
                     let date = e.start.date();
-                    if configuration.is_workday(date) {
+                    if configuration.is_workday(&date) {
                         if last_workday.is_none() || last_workday.unwrap() != date {
                             hours_required += configuration.day_length;
                             last_workday = Some(date);
                         }
                     }
-                    hours_worked += e.duration(&now);
+                    seconds_worked += e.duration(&now);
                 }
-                let delta = hours_required - hours_worked;
-                let completion_time = now + Duration::seconds((delta * (60.0 * 60.0)) as i64);
+                let seconds_required = hours_required * (60.0 * 60.0);
+                let delta = seconds_required - seconds_worked;
+                let completion_time = now + Duration::seconds(delta as i64);
                 if completion_time > now {
                     println!(
                         "you will be finished at {}, {:.2} hours from now",

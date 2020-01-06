@@ -7,6 +7,7 @@ use crate::util::{
     check_for_ongoing_event, common_search_or_filter_arguments, display_events, display_notes,
     fatal, remainder, warn,
 };
+use crate::vacation::VacationController;
 use clap::{App, Arg, ArgMatches, SubCommand};
 use two_timer::{parsable, parse};
 
@@ -83,6 +84,8 @@ pub fn run(matches: &ArgMatches) {
             } else {
                 Event::gather_by_day_and_merge(events, &end)
             };
+            let events =
+                VacationController::read().add_vacation_times(&start, &end, events, &configuration);
             if events.is_empty() {
                 warn("no event found", &configuration)
             } else {
