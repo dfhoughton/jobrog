@@ -654,7 +654,8 @@ impl Configuration {
         }
         ini.write_to_file(Configuration::config_file()).unwrap();
     }
-    fn workdays(&mut self, workdays: &str) {
+    // public for testing purposes
+    pub fn workdays(&mut self, workdays: &str) {
         self.workdays = Configuration::parse_workdays(workdays);
     }
     fn editor(&mut self, editor: &str) {

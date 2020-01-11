@@ -6,7 +6,7 @@ extern crate regex;
 extern crate two_timer;
 
 use crate::configure::Configuration;
-use crate::log::{parse_tags, parse_timestamp, tags, timestamp, Event};
+use crate::log::{parse_tags, parse_timestamp, tags, timestamp, Done, Event};
 use crate::util::{base_dir, fatal, remainder, some_nws, warn, Color};
 use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, Timelike};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
@@ -459,7 +459,6 @@ impl VacationController {
                 new_events.push(events.remove(0));
             }
             if conf.is_workday(&date) {
-                println!("workday: {}", date);
                 // only check for vacation time on workdays
                 let s = date.and_hms(0, 0, 0);
                 let e = s + Duration::days(1);
@@ -473,13 +472,14 @@ impl VacationController {
                     - seconds_worked;
                 for v in &sorted_records {
                     if let Some(event) = v.overlap(&s, e, unworked_seconds, conf) {
-                        println!("    overlap!");
                         let duration = event.duration(&now) as usize;
                         if duration == 0 {
                             break;
                         }
                         unworked_seconds -= duration;
                         new_events.push(event);
+                    } else {
+                        // println!("no overlap");
                     }
                 }
             }
@@ -607,10 +607,16 @@ impl VacationController {
         }
     }
     fn set_over_as_of(&mut self, index: usize, date: &NaiveDateTime) -> Result<String, String> {
-        if index == 0 || self.vacations.len() >= index - 1 {
-            return Err(format!("there is no record vacation number {}", index));
+        if index == 0 {
+            return Err(format!("there is no vacation record number {}", index));
         }
         let index = index - 1;
+        if self.vacations.len() <= index {
+            return Err(format!(
+                "the most recent vacation record is number {}",
+                self.vacations.len()
+            ));
+        }
         if self.vacations[index].repeating() {
             self.vacations[index].over_as_of = Some(date.clone());
             self.changed = true;
@@ -631,10 +637,16 @@ impl VacationController {
         index: usize,
         date: &NaiveDateTime,
     ) -> Result<String, String> {
-        if index == 0 || self.vacations.len() >= index - 1 {
-            return Err(format!("there is no record vacation number {}", index));
+        if index == 0 {
+            return Err(format!("there is no vacation record number {}", index));
         }
         let index = index - 1;
+        if self.vacations.len() <= index {
+            return Err(format!(
+                "the most recent vacation record is number {}",
+                self.vacations.len()
+            ));
+        }
         if self.vacations[index].repeating() {
             self.vacations[index].effective_as_of = Some(date.clone());
             self.changed = true;
@@ -1161,13 +1173,17 @@ mod tests {
         Configuration::read(test_configuration_path())
     }
 
-    fn test_vacation_controller() -> VacationController {
-        File::create(test_vacation_path().unwrap().as_path()).unwrap();
+    fn test_vacation_controller(fresh: bool) -> VacationController {
+        if fresh {
+            File::create(test_vacation_path().unwrap().as_path()).unwrap();
+        }
         VacationController::read(test_vacation_path())
     }
 
-    fn test_log_controller() -> LogController {
-        File::create(test_log_path().unwrap().as_path()).unwrap();
+    fn test_log_controller(fresh: bool) -> LogController {
+        if fresh {
+            File::create(test_log_path().unwrap().as_path()).unwrap();
+        }
         LogController::new(test_log_path()).expect("could not open test log")
     }
 
@@ -1213,7 +1229,11 @@ mod tests {
     fn add_event(log: &mut LogController, time: &NaiveDateTime, description: &str) {
         let mut event = Event::coin(description.to_owned(), Vec::new());
         event.start = time.clone();
-        log.append_to_log(event, "error_message: &str");
+        log.append_to_log(event, "could not add event");
+    }
+
+    fn end_event(log: &mut LogController, time: &NaiveDateTime) {
+        log.append_to_log(Done(time.clone()), "could not end event");
     }
 
     fn add_vacation(
@@ -1237,8 +1257,8 @@ mod tests {
 
     #[test]
     fn simple_test() {
-        let mut log = test_log_controller();
-        let mut vacation = test_vacation_controller();
+        let mut log = test_log_controller(true);
+        let mut vacation = test_vacation_controller(true);
         let conf = test_configuration();
         let now = test_now();
         let (christmas_starts, christmas_ends) = test_time("Dec 25, 2000");
@@ -1251,7 +1271,6 @@ mod tests {
             None,
             None,
         );
-        vacation.write();
         let events = log.events_in_range(&christmas_starts, &christmas_ends);
         assert_eq!(0, events.len(), "nothing in log yet");
         let events = vacation.add_vacation_times(&christmas_starts, &christmas_ends, events, &conf);
@@ -1269,6 +1288,230 @@ mod tests {
         );
         assert_eq!(
             String::from("Christmas"),
+            events[0].description,
+            "expected description"
+        );
+        assert_eq!(0, events[0].tags.len(), "no tags");
+        cleanup();
+    }
+
+    #[test]
+    fn no_workdays() {
+        let mut log = test_log_controller(true);
+        let mut vacation = test_vacation_controller(true);
+        let mut conf = test_configuration();
+        conf.workdays("");
+        let (christmas_starts, christmas_ends) = test_time("Dec 25, 2000");
+        add_vacation(
+            &mut vacation,
+            "Christmas",
+            vec![],
+            &christmas_starts,
+            &christmas_ends,
+            None,
+            None,
+        );
+        let events = log.events_in_range(&christmas_starts, &christmas_ends);
+        assert_eq!(0, events.len(), "nothing in log yet");
+        let events = vacation.add_vacation_times(&christmas_starts, &christmas_ends, events, &conf);
+        assert_eq!(0, events.len(), "still nothing in log");
+        cleanup();
+    }
+
+    #[test]
+    fn repetition() {
+        let mut log = test_log_controller(true);
+        let mut vacation = test_vacation_controller(true);
+        let mut conf = test_configuration();
+        conf.workdays("SMTWHFA");
+        let now = test_now();
+        let (christmas_starts, christmas_ends) = test_time("Dec 25, 1999");
+        add_vacation(
+            &mut vacation,
+            "Christmas",
+            vec![],
+            &christmas_starts,
+            &christmas_ends,
+            None,
+            Some("annual"),
+        );
+        vacation
+            .set_effective_as_of(1, &christmas_starts)
+            .expect("could set effective date of repetition to time in past");
+        let (christmas_starts, christmas_ends) = test_time("Dec 25, 2000");
+        let events = log.events_in_range(&christmas_starts, &christmas_ends);
+        assert_eq!(0, events.len(), "nothing in log yet");
+        let events = vacation.add_vacation_times(&christmas_starts, &christmas_ends, events, &conf);
+        assert_eq!(1, events.len(), "log now has one event");
+        assert_eq!(
+            conf.day_length * (60.0 * 60.0),
+            events[0].duration(&now),
+            "vacation lasts one work day"
+        );
+        assert_eq!(true, events[0].vacation, "event is marked as vacation");
+        assert_eq!(
+            Some(String::from("")),
+            events[0].vacation_type,
+            "expected vacation type"
+        );
+        assert_eq!(
+            String::from("Christmas"),
+            events[0].description,
+            "expected description"
+        );
+        assert_eq!(0, events[0].tags.len(), "no tags");
+        cleanup();
+    }
+
+    #[test]
+    fn repetition_over() {
+        let mut log = test_log_controller(true);
+        let mut vacation = test_vacation_controller(true);
+        let mut conf = test_configuration();
+        conf.workdays("SMTWHFA");
+        let (christmas_starts, christmas_ends) = test_time("Dec 25, 1999");
+        add_vacation(
+            &mut vacation,
+            "Christmas",
+            vec![],
+            &christmas_starts,
+            &christmas_ends,
+            None,
+            Some("annual"),
+        );
+        vacation
+            .set_effective_as_of(1, &christmas_starts)
+            .expect("could set effective date of repetition to time in past");
+        let when_over = christmas_starts + Duration::days(30);
+        vacation
+            .set_over_as_of(1, &when_over)
+            .expect("could set over date of repetition");
+        let (christmas_starts, christmas_ends) = test_time("Dec 25, 2000");
+        let events = log.events_in_range(&christmas_starts, &christmas_ends);
+        assert_eq!(0, events.len(), "nothing in log yet");
+        let events = vacation.add_vacation_times(&christmas_starts, &christmas_ends, events, &conf);
+        assert_eq!(0, events.len(), "still nothing in log");
+        cleanup();
+    }
+
+    #[test]
+    fn repetition_not_yet_begun() {
+        let mut log = test_log_controller(true);
+        let mut vacation = test_vacation_controller(true);
+        let mut conf = test_configuration();
+        conf.workdays("SMTWHFA");
+        let (christmas_starts, christmas_ends) = test_time("Dec 25, 1999");
+        add_vacation(
+            &mut vacation,
+            "Christmas",
+            vec![],
+            &christmas_starts,
+            &christmas_ends,
+            None,
+            Some("annual"),
+        );
+        let (future_time, _) = test_time("Dec 25, 2001");
+        vacation
+            .set_effective_as_of(1, &future_time)
+            .expect("could set effective date of repetition to time in future");
+        let (christmas_starts, christmas_ends) = test_time("Dec 25, 2000");
+        let events = log.events_in_range(&christmas_starts, &christmas_ends);
+        assert_eq!(0, events.len(), "nothing in log yet");
+        let events = vacation.add_vacation_times(&christmas_starts, &christmas_ends, events, &conf);
+        assert_eq!(0, events.len(), "still nothing in log");
+        cleanup();
+    }
+
+    #[test]
+    fn monthly_repetition() {
+        let mut log = test_log_controller(true);
+        let mut vacation = test_vacation_controller(true);
+        let mut conf = test_configuration();
+        conf.workdays("SMTWHFA");
+        let now = test_now();
+        let (ides_starts, ides_ends) = test_time("Dec 15, 1999");
+        add_vacation(
+            &mut vacation,
+            "Ides",
+            vec![],
+            &ides_starts,
+            &ides_ends,
+            None,
+            Some("monthly"),
+        );
+        vacation
+            .set_effective_as_of(1, &ides_starts)
+            .expect("could set effective date of repetition to time in past");
+        let (ides_starts, ides_ends) = test_time("Jan 15, 2000");
+        let events = log.events_in_range(&ides_starts, &ides_ends);
+        assert_eq!(0, events.len(), "nothing in log yet");
+        let events = vacation.add_vacation_times(&ides_starts, &ides_ends, events, &conf);
+        assert_eq!(1, events.len(), "log now has one event");
+        assert_eq!(
+            conf.day_length * (60.0 * 60.0),
+            events[0].duration(&now),
+            "vacation lasts one work day"
+        );
+        assert_eq!(true, events[0].vacation, "event is marked as vacation");
+        assert_eq!(
+            Some(String::from("")),
+            events[0].vacation_type,
+            "expected vacation type"
+        );
+        assert_eq!(
+            String::from("Ides"),
+            events[0].description,
+            "expected description"
+        );
+        assert_eq!(0, events[0].tags.len(), "no tags");
+        cleanup();
+    }
+
+    #[test]
+    fn simple_flex() {
+        let mut log = test_log_controller(true);
+        let mut vacation = test_vacation_controller(true);
+        let mut conf = test_configuration();
+        conf.workdays("SMTWHFA");
+        let now = test_now();
+        let (christmas_eve_starts, christmas_eve_ends) = test_time("Dec 24, 2000");
+        add_vacation(
+            &mut vacation,
+            "Christmas Eve",
+            vec![],
+            &christmas_eve_starts,
+            &christmas_eve_ends,
+            Some("flex"),
+            None,
+        );
+        let task_start = christmas_eve_starts + Duration::hours(8);
+        add_event(&mut log, &task_start, "working a bit");
+        let task_end = task_start + Duration::hours(4);
+        end_event(&mut log, &task_end);
+        let mut log = test_log_controller(false);
+        let events = log.events_in_range(&christmas_eve_starts, &christmas_eve_ends);
+        assert_eq!(1, events.len(), "the one event in log");
+        let events =
+            vacation.add_vacation_times(&christmas_eve_starts, &christmas_eve_ends, events, &conf);
+        assert_eq!(2, events.len(), "task and vacation in log");
+        let events = events
+            .into_iter()
+            .filter(|e| e.vacation)
+            .collect::<Vec<Event>>();
+        assert_eq!(1, events.len(), "only one vacation item added");
+        assert_eq!(
+            (conf.day_length - 4.0) * (60.0 * 60.0),
+            events[0].duration(&now),
+            "vacation lasts the remainder of the work day"
+        );
+        assert_eq!(true, events[0].vacation, "event is marked as vacation");
+        assert_eq!(
+            Some(String::from("flex")),
+            events[0].vacation_type,
+            "expected vacation type"
+        );
+        assert_eq!(
+            String::from("Christmas Eve"),
             events[0].description,
             "expected description"
         );
