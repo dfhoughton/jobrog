@@ -208,7 +208,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
 pub fn run(matches: &ArgMatches) {
     let mut did_something = false;
     let mut write = false;
-    let mut conf = Configuration::read();
+    let mut conf = Configuration::read(None);
     if let Some(v) = matches.value_of("start-pay-period") {
         did_something = true;
         let tt_conf = Config::new()
@@ -523,8 +523,10 @@ impl Configuration {
             t
         }
     }
-    pub fn read() -> Configuration {
-        if let Ok(ini) = Ini::load_from_file(Configuration::config_file().as_path()) {
+    // option parameter facilitates testing
+    pub fn read(path: Option<PathBuf>) -> Configuration {
+        let path = path.unwrap_or(Configuration::config_file());
+        if let Ok(ini) = Ini::load_from_file(path.as_path()) {
             let editor = if let Some(s) = ini.get_from(Some("external"), "editor") {
                 Some(String::from(s))
             } else {

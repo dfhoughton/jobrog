@@ -3,7 +3,7 @@ extern crate clap;
 extern crate regex;
 
 use crate::configure::Configuration;
-use crate::log::{Event, Filter, Log, Note};
+use crate::log::{Event, Filter, LogController, Note};
 use crate::util::{common_search_or_filter_arguments, display_events, display_notes, warn};
 use chrono::Local;
 use clap::{App, ArgMatches, SubCommand};
@@ -23,8 +23,8 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
 
 pub fn run(matches: &ArgMatches) {
     let filter = Filter::new(matches);
-    let reader = Log::new(None).expect("could not read log");
-    let configuration = Configuration::read();
+    let reader = LogController::new(None).expect("could not read log");
+    let configuration = Configuration::read(None);
     if matches.is_present("notes") {
         let note: Vec<Note> = reader
             .notes_from_the_beginning()

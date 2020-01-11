@@ -2,7 +2,7 @@ extern crate clap;
 extern crate two_timer;
 
 use crate::configure::Configuration;
-use crate::log::{Event, Filter, Log, Note};
+use crate::log::{Event, Filter, LogController, Note};
 use crate::util::{
     check_for_ongoing_event, common_search_or_filter_arguments, display_events, display_notes,
     fatal, remainder, warn,
@@ -48,7 +48,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
 pub fn run(matches: &ArgMatches) {
     let phrase = remainder("period", matches);
     let date = matches.value_of("date").unwrap_or(&phrase);
-    let configuration = Configuration::read();
+    let configuration = Configuration::read(None);
     if phrase.len() > 0 && matches.is_present("date") {
         warn(
             format!(
@@ -60,7 +60,7 @@ pub fn run(matches: &ArgMatches) {
     }
     if let Ok((start, end, _)) = parse(&phrase, configuration.two_timer_config()) {
         let filter = Filter::new(matches);
-        let mut reader = Log::new(None).expect("could not read log");
+        let mut reader = LogController::new(None).expect("could not read log");
         check_for_ongoing_event(&mut reader, &configuration);
         if matches.is_present("notes") {
             let note: Vec<Note> = reader
@@ -85,7 +85,7 @@ pub fn run(matches: &ArgMatches) {
                 Event::gather_by_day_and_merge(events, &end)
             };
             let events =
-                VacationController::read().add_vacation_times(&start, &end, events, &configuration);
+                VacationController::read(None).add_vacation_times(&start, &end, events, &configuration);
             if events.is_empty() {
                 warn("no event found", &configuration)
             } else {

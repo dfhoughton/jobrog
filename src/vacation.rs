@@ -197,8 +197,8 @@ Because of this you will not be able to use the vacation file with the Perl clie
 }
 
 pub fn run(matches: &ArgMatches) {
-    let mut controller = VacationController::read();
-    let conf = Configuration::read();
+    let mut controller = VacationController::read(None);
+    let conf = Configuration::read(None);
     if matches.is_present("list") {
         if controller.vacations.is_empty() {
             warn("no vacation records", &conf);
@@ -382,23 +382,21 @@ fn vacation_path() -> PathBuf {
     path
 }
 
-fn vacation_path_bak() -> PathBuf {
-    let mut path = base_dir();
-    path.push("vacation.bak");
-    path
-}
-
 // basically a namespace for vacation-related functions
 pub struct VacationController {
     vacations: Vec<Vacation>,
     changed: bool,
+    path: String,
 }
 
 impl VacationController {
     // fetch vacation information in from file
-    pub fn read() -> VacationController {
-        if vacation_path().as_path().exists() {
-            let file = File::open(vacation_path()).expect("could not open vacation file");
+    // the option argument facilitates testing
+    pub fn read(path: Option<PathBuf>) -> VacationController {
+        let path = path.unwrap_or(vacation_path());
+        let path_str = path.to_str().expect("cannot stringify path").to_owned();
+        if path.as_path().exists() {
+            let file = File::open(path).expect("could not open vacation file");
             let reader = BufReader::new(file);
             let vacations = reader
                 .lines()
@@ -408,13 +406,36 @@ impl VacationController {
             VacationController {
                 vacations,
                 changed: false,
+                path: path_str,
             }
         } else {
             VacationController {
                 vacations: vec![],
                 changed: false,
+                path: path_str,
             }
         }
+    }
+    // vacation file path
+    fn path_buf(&self) -> PathBuf {
+        PathBuf::from(&self.path)
+    }
+    // backup file path
+    fn path_buf_bak(&self) -> PathBuf {
+        let pb = self.path_buf();
+        let mut parts: Vec<String> = pb
+            .iter()
+            .map(|s| {
+                s.to_str()
+                    .expect("trouble converting vacation file path to backup vacation file path")
+                    .to_owned()
+            })
+            .collect();
+        parts
+            .last_mut()
+            .expect("couldn't get file name")
+            .push_str(".bak");
+        parts.iter().collect()
     }
     pub fn add_vacation_times(
         &self,
@@ -438,6 +459,7 @@ impl VacationController {
                 new_events.push(events.remove(0));
             }
             if conf.is_workday(&date) {
+                println!("workday: {}", date);
                 // only check for vacation time on workdays
                 let s = date.and_hms(0, 0, 0);
                 let e = s + Duration::days(1);
@@ -451,6 +473,7 @@ impl VacationController {
                     - seconds_worked;
                 for v in &sorted_records {
                     if let Some(event) = v.overlap(&s, e, unworked_seconds, conf) {
+                        println!("    overlap!");
                         let duration = event.duration(&now) as usize;
                         if duration == 0 {
                             break;
@@ -487,24 +510,28 @@ impl VacationController {
         sorted_records
     }
     // serialize vacation records back to file
-    fn write(&self) {
+    // returns whether there was any change to the file system
+    fn write(&self) -> bool {
         if !self.changed {
-            return;
+            return false;
         }
         if self.vacations.is_empty() {
-            if vacation_path().as_path().exists() {
-                std::fs::remove_file(vacation_path()).expect("failed to remove vacation file");
+            if self.path_buf().as_path().exists() {
+                std::fs::remove_file(self.path_buf()).expect("failed to remove vacation file");
+                true
+            } else {
+                false
             }
         } else {
             let mut backed_up = false;
-            if vacation_path().exists() {
+            if self.path_buf().exists() {
                 // make a backup copy just in case
-                copy(vacation_path(), vacation_path_bak())
+                copy(self.path_buf(), self.path_buf_bak())
                     .expect("could not make backup of vacation file before saving changes");
                 backed_up = true;
             }
             let mut write = BufWriter::new(
-                File::create(vacation_path()).expect("could not open vacation file for writing"),
+                File::create(self.path_buf()).expect("could not open vacation file for writing"),
             );
             for vacation in &self.vacations {
                 writeln!(write, "{}", vacation.serialize()).expect(&format!(
@@ -513,9 +540,10 @@ impl VacationController {
                 ));
             }
             if backed_up {
-                std::fs::remove_file(vacation_path_bak())
+                std::fs::remove_file(self.path_buf_bak())
                     .expect("could not remove vacation backup file");
             }
+            true
         }
     }
     // remove a particular vacation record
@@ -537,6 +565,7 @@ impl VacationController {
             .any(|v| v.start == new.start && v.end == new.end)
     }
     // create a new vacation record
+    // returns a description and whether any event was recorded
     fn record(
         &mut self,
         description: String,
@@ -623,7 +652,7 @@ impl VacationController {
     }
 }
 
-#[derive(Debug, Eq)]
+#[derive(Debug)]
 enum Type {
     Flex,
     Fixed,
@@ -661,25 +690,19 @@ impl Type {
             Type::Ordinary => "",
         }
     }
+    // to simplify ordering logic
+    fn i(&self) -> u8 {
+        match self {
+            Type::Ordinary => 0,
+            Type::Fixed => 1,
+            Type::Flex => 2,
+        }
+    }
 }
 
 impl PartialOrd for Type {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match self {
-            Type::Fixed => match other {
-                Type::Fixed => Some(Ordering::Equal),
-                Type::Ordinary => Some(Ordering::Greater),
-                _ => Some(Ordering::Less),
-            },
-            Type::Ordinary => match other {
-                Type::Ordinary => Some(Ordering::Equal),
-                _ => Some(Ordering::Greater),
-            },
-            Type::Flex => match other {
-                Type::Flex => Some(Ordering::Equal),
-                _ => Some(Ordering::Less),
-            },
-        }
+        Some(self.i().cmp(&other.i()))
     }
 }
 
@@ -691,9 +714,14 @@ impl Ord for Type {
 
 impl PartialEq for Type {
     fn eq(&self, other: &Self) -> bool {
-        self == other
+        match self.cmp(other) {
+            Ordering::Equal => true,
+            _ => false,
+        }
     }
 }
+
+impl Eq for Type {}
 
 #[derive(Debug)]
 enum Repetition {
@@ -1023,6 +1051,9 @@ impl Vacation {
                         }
                     }
                 };
+                if &self.description == "time off" {
+                    println!("  maybe_range: {:?}", maybe_range);
+                }
                 if let Some((adjusted_start, adjusted_end)) = maybe_range {
                     if let Some((s, e)) =
                         available_overlap((&adjusted_start, &adjusted_end), (start, end))
@@ -1060,7 +1091,8 @@ fn any_overlap(
     interval_1: (&NaiveDateTime, &NaiveDateTime),
     interval_2: (&NaiveDateTime, &NaiveDateTime),
 ) -> bool {
-    interval_1.0 > interval_2.1 && interval_2.0 > interval_1.1
+    (interval_1.0 <= interval_2.0 && interval_1.1 > interval_2.0)
+        || (interval_2.0 <= interval_1.0 && interval_2.1 > interval_1.0)
 }
 
 fn available_overlap(
@@ -1096,8 +1128,151 @@ fn fit_range_to_workday(
 
 fn start_workday(time: &NaiveDateTime, conf: &Configuration) -> NaiveDateTime {
     time.date().and_hms(
-        (conf.beginning_work_day.0 as u32),
-        (conf.beginning_work_day.1 as u32),
+        conf.beginning_work_day.0 as u32,
+        conf.beginning_work_day.1 as u32,
         0,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::log::{Event, LogController};
+    use std::str::FromStr;
+
+    fn test_vacation_path() -> Option<PathBuf> {
+        let path = PathBuf::from_str("test_vacation").expect("could not create test vacation path");
+        Some(path)
+    }
+
+    fn test_log_path() -> Option<PathBuf> {
+        let path = PathBuf::from_str("test_log").expect("could not create test log path");
+        Some(path)
+    }
+
+    fn test_configuration_path() -> Option<PathBuf> {
+        let path = PathBuf::from_str("test_configuration")
+            .expect("could not create test configuration path");
+        Some(path)
+    }
+
+    fn test_configuration() -> Configuration {
+        File::create(test_configuration_path().unwrap().as_path()).unwrap();
+        Configuration::read(test_configuration_path())
+    }
+
+    fn test_vacation_controller() -> VacationController {
+        File::create(test_vacation_path().unwrap().as_path()).unwrap();
+        VacationController::read(test_vacation_path())
+    }
+
+    fn test_log_controller() -> LogController {
+        File::create(test_log_path().unwrap().as_path()).unwrap();
+        LogController::new(test_log_path()).expect("could not open test log")
+    }
+
+    fn test_time(phrase: &str) -> (NaiveDateTime, NaiveDateTime) {
+        let (start, end, _) =
+            parse(phrase, None).expect(&format!("could not make test time from '{}'", phrase));
+        (start, end)
+    }
+
+    fn test_now() -> NaiveDateTime {
+        NaiveDate::from_ymd(2001, 1, 1).and_hms(12, 0, 0)
+    }
+
+    // remove test files
+    fn cleanup() {
+        std::fs::remove_file(
+            PathBuf::from_str(
+                test_configuration_path()
+                    .unwrap()
+                    .to_str()
+                    .expect("no configuration file"),
+            )
+            .expect("could not obtain path of configuration"),
+        )
+        .expect("failed to remove test configuration file");
+        std::fs::remove_file(
+            PathBuf::from_str(
+                test_vacation_path()
+                    .unwrap()
+                    .to_str()
+                    .expect("no vacation file"),
+            )
+            .expect("could not obtain path of vacation"),
+        )
+        .expect("failed to remove test vacation file");
+        std::fs::remove_file(
+            PathBuf::from_str(test_log_path().unwrap().to_str().expect("no log file"))
+                .expect("could not obtain path of log"),
+        )
+        .expect("failed to remove test log file");
+    }
+
+    fn add_event(log: &mut LogController, time: &NaiveDateTime, description: &str) {
+        let mut event = Event::coin(description.to_owned(), Vec::new());
+        event.start = time.clone();
+        log.append_to_log(event, "error_message: &str");
+    }
+
+    fn add_vacation(
+        vacation: &mut VacationController,
+        description: &str,
+        tags: Vec<&str>,
+        start: &NaiveDateTime,
+        end: &NaiveDateTime,
+        kind: Option<&str>,
+        repetition: Option<&str>,
+    ) -> (String, bool) {
+        vacation.record(
+            description.to_owned(),
+            tags.iter().map(|s| s.to_string()).collect(),
+            start.clone(),
+            end.clone(),
+            kind,
+            repetition,
+        )
+    }
+
+    #[test]
+    fn simple_test() {
+        let mut log = test_log_controller();
+        let mut vacation = test_vacation_controller();
+        let conf = test_configuration();
+        let now = test_now();
+        let (christmas_starts, christmas_ends) = test_time("Dec 25, 2000");
+        add_vacation(
+            &mut vacation,
+            "Christmas",
+            vec![],
+            &christmas_starts,
+            &christmas_ends,
+            None,
+            None,
+        );
+        vacation.write();
+        let events = log.events_in_range(&christmas_starts, &christmas_ends);
+        assert_eq!(0, events.len(), "nothing in log yet");
+        let events = vacation.add_vacation_times(&christmas_starts, &christmas_ends, events, &conf);
+        assert_eq!(1, events.len(), "log now has one event");
+        assert_eq!(
+            conf.day_length * (60.0 * 60.0),
+            events[0].duration(&now),
+            "vacation lasts one work day"
+        );
+        assert_eq!(true, events[0].vacation, "event is marked as vacation");
+        assert_eq!(
+            Some(String::from("")),
+            events[0].vacation_type,
+            "expected vacation type"
+        );
+        assert_eq!(
+            String::from("Christmas"),
+            events[0].description,
+            "expected description"
+        );
+        assert_eq!(0, events[0].tags.len(), "no tags");
+        cleanup();
+    }
 }

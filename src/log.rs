@@ -85,17 +85,17 @@ pub fn parse_line(line: &str, offset: usize) -> Item {
     }
 }
 
-pub struct Log {
+pub struct LogController {
     pub larry: Larry,
     pub path: String,
 }
 
-impl Log {
-    pub fn new(log: Option<PathBuf>) -> Result<Log, std::io::Error> {
+impl LogController {
+    pub fn new(log: Option<PathBuf>) -> Result<LogController, std::io::Error> {
         let log = log.unwrap_or(log_path());
         let path = log.as_path().to_str();
         Larry::new(log.as_path()).and_then(|log| {
-            Ok(Log {
+            Ok(LogController {
                 larry: log,
                 path: path.unwrap().to_owned(),
             })
@@ -313,20 +313,20 @@ impl Log {
         }
     }
     // this method devours the reader because it invalidates the information cached in larry
-    pub fn append_event(self, description: String, tags: Vec<String>) -> (Event, usize) {
+    pub fn append_event(&mut self, description: String, tags: Vec<String>) -> (Event, usize) {
         let event = Event::coin(description, tags);
         self.append_to_log(event, "could not append event to log")
     }
     // this method devours the reader because it invalidates the information cached in larry
-    pub fn append_note(self, description: String, tags: Vec<String>) -> (Note, usize) {
+    pub fn append_note(&mut self, description: String, tags: Vec<String>) -> (Note, usize) {
         let note = Note::coin(description, tags);
         self.append_to_log(note, "could not append note to log")
     }
-    pub fn close_event(self) -> (Done, usize) {
+    pub fn close_event(&mut self) -> (Done, usize) {
         let done = Done(Local::now().naive_local());
         self.append_to_log(done, "could not append DONE line to log")
     }
-    fn append_to_log<T: LogLine>(mut self, item: T, error_message: &str) -> (T, usize) {
+    pub fn append_to_log<T: LogLine>(&mut self, item: T, error_message: &str) -> (T, usize) {
         let mut log = OpenOptions::new()
             .write(true)
             .append(true)
@@ -356,7 +356,7 @@ struct ItemsBefore<'a> {
 }
 
 impl<'a> ItemsBefore<'a> {
-    fn new(offset: usize, reader: &mut Log) -> ItemsBefore {
+    fn new(offset: usize, reader: &mut LogController) -> ItemsBefore {
         ItemsBefore {
             offset: if offset == 0 { None } else { Some(offset) },
             larry: &mut reader.larry,
@@ -414,7 +414,7 @@ pub struct NotesBefore<'a> {
 }
 
 impl<'a> NotesBefore<'a> {
-    fn new(offset: usize, reader: &mut Log) -> NotesBefore {
+    fn new(offset: usize, reader: &mut LogController) -> NotesBefore {
         NotesBefore {
             item_iterator: ItemsBefore::new(offset, reader),
         }
@@ -443,7 +443,7 @@ pub struct NotesAfter {
 }
 
 impl NotesAfter {
-    fn new(offset: usize, reader: &Log) -> NotesAfter {
+    fn new(offset: usize, reader: &LogController) -> NotesAfter {
         NotesAfter {
             item_iterator: ItemsAfter::new(offset, &reader.path),
         }
@@ -473,7 +473,7 @@ pub struct EventsBefore<'a> {
 }
 
 impl<'a> EventsBefore<'a> {
-    fn new(offset: usize, reader: &mut Log) -> EventsBefore {
+    fn new(offset: usize, reader: &mut LogController) -> EventsBefore {
         // the last event may be underway at the offset, so find out when it ends
         let items_after = ItemsAfter::new(offset, &reader.path);
         let timed_item = items_after
@@ -530,7 +530,7 @@ pub struct EventsAfter {
 }
 
 impl EventsAfter {
-    fn new(offset: usize, reader: &Log) -> EventsAfter {
+    fn new(offset: usize, reader: &LogController) -> EventsAfter {
         EventsAfter {
             next_item: None,
             item_iterator: ItemsAfter::new(offset, &reader.path),
@@ -741,7 +741,7 @@ mod tests {
         let (items, path) = random_log(100);
         let notes = notes(items);
         assert!(notes.len() > 1, "found more than one note");
-        let mut log_reader = Log::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let mut log_reader = LogController::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
         for i in 0..notes.len() - 1 {
             for j in i..notes.len() {
                 let found_notes = log_reader.notes_in_range(&notes[i].time, &notes[j].time);
@@ -768,7 +768,7 @@ mod tests {
         let (items, path) = random_log(20);
         let events = closed_events(items);
         assert!(events.len() > 1, "found more than one event");
-        let mut log_reader = Log::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let mut log_reader = LogController::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
         for i in 0..events.len() - 1 {
             for j in i..events.len() {
                 let found_events = log_reader.events_in_range(&events[i].start, &events[j].start);
@@ -796,7 +796,7 @@ mod tests {
         let (items, path) = random_log(100);
         let mut notes = notes(items);
         notes.reverse();
-        let mut log_reader = Log::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let mut log_reader = LogController::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
         let found_notes = log_reader.notes_from_the_end().collect::<Vec<_>>();
         assert_eq!(
             notes.len(),
@@ -818,7 +818,7 @@ mod tests {
     fn test_notes_from_beginning() {
         let (items, path) = random_log(100);
         let notes = notes(items);
-        let log_reader = Log::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let log_reader = LogController::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
         let found_notes = log_reader.notes_from_the_beginning().collect::<Vec<_>>();
         assert_eq!(
             notes.len(),
@@ -841,7 +841,7 @@ mod tests {
         let (items, path) = random_log(100);
         let mut events = closed_events(items);
         events.reverse();
-        let mut log_reader = Log::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let mut log_reader = LogController::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
         let found_events = log_reader.events_from_the_end().collect::<Vec<_>>();
         assert_eq!(
             events.len(),
@@ -867,7 +867,7 @@ mod tests {
     fn test_events_from_beginning() {
         let (items, path) = random_log(100);
         let events = closed_events(items);
-        let log_reader = Log::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let log_reader = LogController::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
         let found_events = log_reader.events_from_the_beginning().collect::<Vec<_>>();
         assert_eq!(
             events.len(),
@@ -894,7 +894,8 @@ mod tests {
         if items.is_empty() {
             println!("empty file; skipping...");
         } else {
-            let mut log_reader = Log::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+            let mut log_reader =
+                LogController::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
             let mut last_timed_item: Option<Item> = None;
             for item in items {
                 let (time, offset) = item.time().unwrap();
@@ -1586,7 +1587,7 @@ pub enum Direction {
     Back,
 }
 
-trait LogLine {
+pub trait LogLine {
     fn to_line(&self) -> String;
 }
 

@@ -3,7 +3,7 @@ extern crate clap;
 extern crate two_timer;
 
 use crate::configure::Configuration;
-use crate::log::{Event, Log};
+use crate::log::{Event, LogController};
 use crate::util::fatal;
 use crate::vacation::VacationController;
 use chrono::{Duration, Local, NaiveDate, NaiveDateTime};
@@ -32,7 +32,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
 }
 
 pub fn run(matches: &ArgMatches) {
-    let configuration = Configuration::read();
+    let configuration = Configuration::read(None);
     let phrase = matches
         .values_of("period")
         .unwrap()
@@ -59,10 +59,10 @@ pub fn run(matches: &ArgMatches) {
                     &configuration,
                 )
             } else {
-                let mut reader = Log::new(None).expect("could not read log");
+                let mut reader = LogController::new(None).expect("could not read log");
                 let events = reader.events_in_range(&start, &now);
                 let events = Event::gather_by_day(events, &end);
-                let events = VacationController::read().add_vacation_times(
+                let events = VacationController::read(None).add_vacation_times(
                     &start,
                     &end,
                     events,

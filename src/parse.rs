@@ -42,7 +42,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
 }
 
 pub fn run(matches: &ArgMatches) {
-    let conf = Configuration::read();
+    let conf = Configuration::read(None);
     if !matches.is_present("period") {
         fatal("no time expression provided", &conf);
     }

@@ -6,7 +6,7 @@ extern crate dirs;
 extern crate regex;
 
 use crate::configure::Configuration;
-use crate::log::{Event, Item, Log, Note};
+use crate::log::{Event, Item, LogController, Note};
 use ansi_term::Colour::{Blue, Cyan, Green, Purple, Red};
 use ansi_term::Style;
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime, Timelike};
@@ -173,7 +173,7 @@ fn time_string(this_time: &Option<NaiveDateTime>, last_time: &Option<NaiveDateTi
 }
 
 fn duration_string(duration: f32, precision: u8) -> String {
-    format!("{0:.1$}", duration / ( 60.0 * 60.0), (precision as usize))
+    format!("{0:.1$}", duration / (60.0 * 60.0), (precision as usize))
 }
 
 fn date_string(date: &NaiveDate, same_year: bool) -> String {
@@ -403,7 +403,7 @@ pub fn describe(action: &str, item: Item) {
 }
 
 // this is really a check for ongoing *multi-day* events
-pub fn check_for_ongoing_event(reader: &mut Log, conf: &Configuration) {
+pub fn check_for_ongoing_event(reader: &mut LogController, conf: &Configuration) {
     if reader.forgot_to_end_last_event() {
         warn(
             "it appears an event begun on a previous day is ongoing",
@@ -414,7 +414,7 @@ pub fn check_for_ongoing_event(reader: &mut Log, conf: &Configuration) {
         let start = &last_event.start.clone();
         let now = Local::now().naive_local();
         let event = Event::gather_by_day(vec![last_event], &now);
-        let configuration = Configuration::read();
+        let configuration = Configuration::read(None);
         display_events(event, start, &now, &configuration);
         println!();
     }
