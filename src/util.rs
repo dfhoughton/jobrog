@@ -241,6 +241,7 @@ pub fn display_events(
     let mut durations: BTreeMap<String, f32> = BTreeMap::new();
     let mut total_duration = 0.0;
     let mut untagged_duration = 0.0;
+    let mut vacation_duration = 0.0;
     let now = Local::now().naive_local();
     let same_year = start.year() == end.year();
     let data: Vec<Vec<String>> = events
@@ -267,7 +268,10 @@ pub fn display_events(
                 *durations.entry(tag.clone()).or_insert(0.0) += duration;
             }
             if e.tags.is_empty() {
-                untagged_duration += e.duration(&now);
+                untagged_duration += duration;
+            }
+            if e.vacation {
+                vacation_duration += duration;
             }
             total_duration += duration;
             parts.push(e.description.clone());
@@ -292,7 +296,13 @@ pub fn display_events(
         for line in row {
             for (cell_num, (margin, cell)) in line.iter().enumerate() {
                 let cell = match cell_num {
-                    3 => color.cyan(cell),
+                    3 => {
+                        if events[offset].vacation {
+                            color.purple(cell)
+                        } else {
+                            color.cyan(cell)
+                        }
+                    }
                     4 => color.green(cell),
                     _ => cell.to_owned(),
                 };
@@ -309,10 +319,19 @@ pub fn display_events(
         String::from("TOTAL HOURS"),
         duration_string(total_duration, configuration.precision),
     ]];
+    let mut header_count = 1;
     if untagged_duration > 0.0 {
+        header_count += 1;
         data.push(vec![
             String::from("UNTAGGED"),
             duration_string(untagged_duration, configuration.precision),
+        ])
+    }
+    if vacation_duration > 0.0 {
+        header_count += 1;
+        data.push(vec![
+            String::from("VACATION"),
+            duration_string(vacation_duration, configuration.precision),
         ])
     }
     for (tag, duration) in durations.iter() {
@@ -324,23 +343,11 @@ pub fn display_events(
     for (offset, row) in tags_table.macerate(data).unwrap().iter().enumerate() {
         for line in row {
             for (cell_num, (margin, cell)) in line.iter().enumerate() {
-                // somewhat hacky; should improve this
-                let cell = match offset {
-                    0 => {
-                        if cell_num == 0 {
-                            color.red(cell)
-                        } else {
-                            cell.to_owned()
-                        }
-                    }
-                    1 => {
-                        if cell_num == 0 && untagged_duration > 0.0 {
-                            color.red(cell)
-                        } else {
-                            cell.to_owned()
-                        }
-                    }
-                    _ => cell.to_owned(),
+                // header values are red
+                let cell = if cell_num == 0 && offset < header_count {
+                    color.red(cell)
+                } else {
+                    cell.to_owned()
                 };
                 print!("{}{}", margin, cell);
             }
