@@ -486,7 +486,6 @@ impl VacationController {
                             break;
                         }
                     } else {
-                        // println!("no overlap");
                     }
                 }
             }
@@ -1063,6 +1062,9 @@ impl Vacation {
             self.end_description()
         )
     }
+    fn duration(&self) -> Duration {
+        self.end - self.start
+    }
     // return an "event" representing an overlap of a vacation record with this span of time
     fn overlap(
         &self,
@@ -1105,9 +1107,7 @@ impl Vacation {
                                 self.start.minute(),
                                 self.start.second(),
                             );
-                            let d2 =
-                                NaiveDate::from_ymd(end.year(), self.end.month(), self.end.day())
-                                    .and_hms(self.end.hour(), self.end.minute(), self.end.second());
+                            let d2 = d1 + self.duration();
                             Some((d1, d2))
                         }
                     }
@@ -1124,8 +1124,7 @@ impl Vacation {
                                         self.start.minute(),
                                         self.start.second(),
                                     );
-                            let d2 = NaiveDate::from_ymd(end.year(), end.month(), self.end.day())
-                                .and_hms(self.end.hour(), self.end.minute(), self.end.second());
+                            let d2 = d1 + self.duration();
                             Some((d1, d2))
                         }
                     }
@@ -1177,8 +1176,14 @@ fn any_overlap(
     interval_1: (&NaiveDateTime, &NaiveDateTime),
     interval_2: (&NaiveDateTime, &NaiveDateTime),
 ) -> bool {
-    (interval_1.0 <= interval_2.0 && interval_1.1 > interval_2.0)
-        || (interval_2.0 <= interval_1.0 && interval_2.1 > interval_1.0)
+    // order intervals so interval_1 is not after interval_2
+    let (interval_1, interval_2) = if interval_1.0 < interval_2.0 {
+        (interval_1, interval_2)
+    } else {
+        (interval_2, interval_1)
+    };
+    // now interval_2 must begin before interval_1 ends
+    interval_2.0 < interval_1.1
 }
 
 fn available_overlap(
@@ -1383,6 +1388,61 @@ mod tests {
             "expected description"
         );
         assert_eq!(0, events[0].tags.len(), "no tags");
+        cleanup(disambiguator);
+    }
+
+    #[test]
+    fn tags() {
+        let disambiguator = "tags";
+        let mut log = test_log_controller(true, disambiguator);
+        let mut vacation = test_vacation_controller(true, disambiguator);
+        let conf = test_configuration(disambiguator);
+        let now = test_now();
+        let (christmas_starts, christmas_ends) = test_time("Dec 25, 2000");
+        add_vacation(
+            &mut vacation,
+            "Christmas",
+            vec!["foo", "bar"],
+            &christmas_starts,
+            &christmas_ends,
+            None,
+            None,
+        );
+        let events = log.events_in_range(&christmas_starts, &christmas_ends);
+        assert_eq!(0, events.len(), "nothing in log yet");
+        let events = vacation.add_vacation_times(
+            &christmas_starts,
+            &christmas_ends,
+            events,
+            &conf,
+            Some(now.clone()),
+        );
+        assert_eq!(1, events.len(), "log now has one event");
+        assert_eq!(
+            conf.day_length * (60.0 * 60.0),
+            events[0].duration(&now),
+            "vacation lasts one work day"
+        );
+        assert_eq!(true, events[0].vacation, "event is marked as vacation");
+        assert_eq!(
+            Some(String::from("")),
+            events[0].vacation_type,
+            "expected vacation type"
+        );
+        assert_eq!(
+            String::from("Christmas"),
+            events[0].description,
+            "expected description"
+        );
+        assert_eq!(
+            vec!["bar", "foo"],
+            events[0]
+                .tags
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<&str>>(),
+            "same tags"
+        );
         cleanup(disambiguator);
     }
 
@@ -1701,6 +1761,57 @@ mod tests {
             "expected description"
         );
         assert_eq!(0, events[0].tags.len(), "no tags");
+        cleanup(disambiguator);
+    }
+    
+    #[test]
+    fn long_vacation() {
+        let disambiguator = "long_vacation";
+        let mut log = test_log_controller(true, disambiguator);
+        let mut vacation = test_vacation_controller(true, disambiguator);
+        let mut conf = test_configuration(disambiguator);
+        conf.workdays("SMTWHFA");
+        let now = test_now();
+        let (vacation_starts, vacation_ends) = test_time("Dec 23, 2000 - Dec 31, 2000");
+        add_vacation(
+            &mut vacation,
+            "Christmas",
+            vec![],
+            &vacation_starts,
+            &vacation_ends,
+            None,
+            None,
+        );
+        for i in 23..32 {
+            let (vacation_day_starts, vacation_day_ends) = test_time(&format!("Dec {}, 2000", i));
+            let events = log.events_in_range(&vacation_day_starts, &vacation_day_ends);
+            assert_eq!(0, events.len(), "nothing in log yet");
+            let events = vacation.add_vacation_times(
+                &vacation_day_starts,
+                &vacation_day_ends,
+                events,
+                &conf,
+                Some(now.clone()),
+            );
+            assert_eq!(1, events.len(), "log now has one event");
+            assert_eq!(
+                conf.day_length * (60.0 * 60.0),
+                events[0].duration(&now),
+                "vacation lasts one work day"
+            );
+            assert_eq!(true, events[0].vacation, "event is marked as vacation");
+            assert_eq!(
+                Some(String::from("")),
+                events[0].vacation_type,
+                "expected vacation type"
+            );
+            assert_eq!(
+                String::from("Christmas"),
+                events[0].description,
+                "expected description"
+            );
+            assert_eq!(0, events[0].tags.len(), "no tags");
+        }
         cleanup(disambiguator);
     }
 }
