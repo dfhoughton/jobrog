@@ -67,6 +67,7 @@ pub fn run(matches: &ArgMatches) {
                     &end,
                     events,
                     &configuration,
+                    None,
                 );
                 let mut hours_required = 0.0;
                 let mut seconds_worked = 0.0;

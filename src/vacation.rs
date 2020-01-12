@@ -188,7 +188,7 @@ Because the vacation format is so complex it should not be edited by hand but on
 Generally this just means adding and subtracting vacation days. For the latter you will be presented with an
 enumerated list of known vacations. You delete them by their number in the list.
 
-If two vacation periods overlap non-repeating periods will be preferred to repeating, narrower periods to wider, and
+If two vacation periods overlap repeating periods will be preferred to non-repeating, narrower periods to wider, and
 ordinary > fixed > flex. In any case, a particular vacation moment will only be counted once.
 
 Note, the Rust version of JobLog is adding some features to vacations: on and off times for repeating vacations.
@@ -443,6 +443,7 @@ impl VacationController {
         end: &NaiveDateTime,
         mut events: Vec<Event>, // these events *must be grouped by day*
         conf: &Configuration,
+        now: Option<NaiveDateTime>,
     ) -> Vec<Event> {
         if self.vacations.is_empty() {
             return events;
@@ -450,7 +451,7 @@ impl VacationController {
         let mut new_events = Vec::new();
         let mut date = start.date();
         let end_date = end.date();
-        let now = Local::now().naive_local();
+        let now = now.unwrap_or(Local::now().naive_local());
         let sorted_records = self.sorted_vacation_records();
         while date < end_date {
             let mut seconds_worked = 0;
@@ -467,9 +468,12 @@ impl VacationController {
                 let start_workday = start_workday(&s, conf);
                 let end_workday = start_workday + Duration::hours(conf.day_length as i64);
                 let end_workday = if &end_workday > e { e } else { &end_workday };
-                let mut unworked_seconds = ((end_workday.timestamp() - start_workday.timestamp())
-                    as usize)
-                    - seconds_worked;
+                let delta = (end_workday.timestamp() - start_workday.timestamp()) as usize;
+                let mut unworked_seconds = if seconds_worked > delta {
+                    0
+                } else {
+                    delta - seconds_worked
+                };
                 for v in &sorted_records {
                     if let Some(event) = v.overlap(&s, e, unworked_seconds, conf) {
                         let duration = event.duration(&now) as usize;
@@ -478,6 +482,9 @@ impl VacationController {
                         }
                         unworked_seconds -= duration;
                         new_events.push(event);
+                        if v.full_day(conf) {
+                            break;
+                        }
                     } else {
                         // println!("no overlap");
                     }
@@ -495,19 +502,9 @@ impl VacationController {
         new_events
     }
     fn sorted_vacation_records(&self) -> Vec<&Vacation> {
-        let mut sorted_records: Vec<&Vacation> = self.vacations.iter().collect();
-        sorted_records.sort_by(|a, b| {
-            if a.kind == b.kind {
-                if a.start == b.start {
-                    a.end.cmp(&b.end)
-                } else {
-                    a.start.cmp(&b.start)
-                }
-            } else {
-                a.kind.cmp(&b.kind)
-            }
-        });
-        sorted_records
+        let mut sorted = self.vacations.iter().collect::<Vec<&Vacation>>();
+        sorted.sort_by(|a, b| a.cmp(b));
+        sorted
     }
     // serialize vacation records back to file
     // returns whether there was any change to the file system
@@ -703,7 +700,7 @@ impl Type {
         }
     }
     // to simplify ordering logic
-    fn i(&self) -> u8 {
+    fn to_u8(&self) -> u8 {
         match self {
             Type::Ordinary => 0,
             Type::Fixed => 1,
@@ -714,7 +711,7 @@ impl Type {
 
 impl PartialOrd for Type {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.i().cmp(&other.i()))
+        Some(self.to_u8().cmp(&other.to_u8()))
     }
 }
 
@@ -773,7 +770,35 @@ impl Repetition {
             Repetition::Never => "",
         }
     }
+    // to make it easier to implement ordering
+    fn to_u8(&self) -> u8 {
+        match self {
+            Repetition::Monthly => 0,
+            Repetition::Annual => 1,
+            Repetition::Never => 2,
+        }
+    }
 }
+
+impl PartialOrd for Repetition {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.to_u8().partial_cmp(&other.to_u8())
+    }
+}
+
+impl Ord for Repetition {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.partial_cmp(other).unwrap()
+    }
+}
+
+impl PartialEq for Repetition {
+    fn eq(&self, other: &Self) -> bool {
+        self.to_u8() == other.to_u8()
+    }
+}
+
+impl Eq for Repetition {}
 
 #[derive(Debug)]
 struct Vacation {
@@ -786,6 +811,49 @@ struct Vacation {
     effective_as_of: Option<NaiveDateTime>,
     over_as_of: Option<NaiveDateTime>,
 }
+
+impl PartialOrd for Vacation {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self.kind == other.kind {
+            if self.repetition == other.repetition {
+                if self.start == other.start {
+                    if self.end == other.end {
+                        if self.description == other.description {
+                            self.tags.partial_cmp(&other.tags)
+                        } else {
+                            self.description.partial_cmp(&other.description)
+                        }
+                    } else {
+                        self.end.partial_cmp(&other.end)
+                    }
+                } else {
+                    self.start.partial_cmp(&other.start)
+                }
+            } else {
+                self.repetition.partial_cmp(&other.repetition)
+            }
+        } else {
+            self.kind.partial_cmp(&other.kind)
+        }
+    }
+}
+
+impl Ord for Vacation {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.partial_cmp(other).unwrap()
+    }
+}
+
+impl PartialEq for Vacation {
+    fn eq(&self, other: &Self) -> bool {
+        match self.cmp(other) {
+            Ordering::Equal => true,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Vacation {}
 
 // remove escape sequences
 fn unescape_description(description: &str) -> String {
@@ -996,7 +1064,6 @@ impl Vacation {
         )
     }
     // return an "event" representing an overlap of a vacation record with this span of time
-    #[allow(dead_code)]
     fn overlap(
         &self,
         start: &NaiveDateTime, // the start of the interval which might overlap vacation
@@ -1063,9 +1130,6 @@ impl Vacation {
                         }
                     }
                 };
-                if &self.description == "time off" {
-                    println!("  maybe_range: {:?}", maybe_range);
-                }
                 if let Some((adjusted_start, adjusted_end)) = maybe_range {
                     if let Some((s, e)) =
                         available_overlap((&adjusted_start, &adjusted_end), (start, end))
@@ -1095,6 +1159,16 @@ impl Vacation {
             })
         } else {
             None
+        }
+    }
+    // whether this vacation record necessarily covers a full day of work
+    fn full_day(&self, conf: &Configuration) -> bool {
+        match self.kind {
+            Type::Ordinary | Type::Flex => true,
+            _ => {
+                let duration = (self.end.timestamp() - self.start.timestamp()) as u32;
+                (conf.day_length as u32) * (60 * 60) <= duration
+            }
         }
     }
 }
@@ -1152,39 +1226,44 @@ mod tests {
     use crate::log::{Event, LogController};
     use std::str::FromStr;
 
-    fn test_vacation_path() -> Option<PathBuf> {
-        let path = PathBuf::from_str("test_vacation").expect("could not create test vacation path");
+    // if the test panics, this leaves the file in the development directory for examination
+    fn test_vacation_path(disambiguator: &str) -> Option<PathBuf> {
+        let path = PathBuf::from_str(&format!("test_vacation_{}", disambiguator))
+            .expect("could not create test vacation path");
         Some(path)
     }
 
-    fn test_log_path() -> Option<PathBuf> {
-        let path = PathBuf::from_str("test_log").expect("could not create test log path");
+    // ditto
+    fn test_log_path(disambiguator: &str) -> Option<PathBuf> {
+        let path = PathBuf::from_str(&format!("test_log_{}", disambiguator))
+            .expect("could not create test log path");
         Some(path)
     }
 
-    fn test_configuration_path() -> Option<PathBuf> {
-        let path = PathBuf::from_str("test_configuration")
+    // so we have a known configuraiton
+    fn test_configuration_path(disambiguator: &str) -> Option<PathBuf> {
+        let path = PathBuf::from_str(&format!("test_configuration_{}", disambiguator))
             .expect("could not create test configuration path");
         Some(path)
     }
 
-    fn test_configuration() -> Configuration {
-        File::create(test_configuration_path().unwrap().as_path()).unwrap();
-        Configuration::read(test_configuration_path())
+    fn test_configuration(disambiguator: &str) -> Configuration {
+        File::create(test_configuration_path(disambiguator).unwrap().as_path()).unwrap();
+        Configuration::read(test_configuration_path(disambiguator))
     }
 
-    fn test_vacation_controller(fresh: bool) -> VacationController {
+    fn test_vacation_controller(fresh: bool, disambiguator: &str) -> VacationController {
         if fresh {
-            File::create(test_vacation_path().unwrap().as_path()).unwrap();
+            File::create(test_vacation_path(disambiguator).unwrap().as_path()).unwrap();
         }
-        VacationController::read(test_vacation_path())
+        VacationController::read(test_vacation_path(disambiguator))
     }
 
-    fn test_log_controller(fresh: bool) -> LogController {
+    fn test_log_controller(fresh: bool, disambiguator: &str) -> LogController {
         if fresh {
-            File::create(test_log_path().unwrap().as_path()).unwrap();
+            File::create(test_log_path(disambiguator).unwrap().as_path()).unwrap();
         }
-        LogController::new(test_log_path()).expect("could not open test log")
+        LogController::new(test_log_path(disambiguator)).expect("could not open test log")
     }
 
     fn test_time(phrase: &str) -> (NaiveDateTime, NaiveDateTime) {
@@ -1198,10 +1277,10 @@ mod tests {
     }
 
     // remove test files
-    fn cleanup() {
+    fn cleanup(disambiguator: &str) {
         std::fs::remove_file(
             PathBuf::from_str(
-                test_configuration_path()
+                test_configuration_path(disambiguator)
                     .unwrap()
                     .to_str()
                     .expect("no configuration file"),
@@ -1211,7 +1290,7 @@ mod tests {
         .expect("failed to remove test configuration file");
         std::fs::remove_file(
             PathBuf::from_str(
-                test_vacation_path()
+                test_vacation_path(disambiguator)
                     .unwrap()
                     .to_str()
                     .expect("no vacation file"),
@@ -1220,8 +1299,13 @@ mod tests {
         )
         .expect("failed to remove test vacation file");
         std::fs::remove_file(
-            PathBuf::from_str(test_log_path().unwrap().to_str().expect("no log file"))
-                .expect("could not obtain path of log"),
+            PathBuf::from_str(
+                test_log_path(disambiguator)
+                    .unwrap()
+                    .to_str()
+                    .expect("no log file"),
+            )
+            .expect("could not obtain path of log"),
         )
         .expect("failed to remove test log file");
     }
@@ -1257,9 +1341,10 @@ mod tests {
 
     #[test]
     fn simple_test() {
-        let mut log = test_log_controller(true);
-        let mut vacation = test_vacation_controller(true);
-        let conf = test_configuration();
+        let disambiguator = "simple_test";
+        let mut log = test_log_controller(true, disambiguator);
+        let mut vacation = test_vacation_controller(true, disambiguator);
+        let conf = test_configuration(disambiguator);
         let now = test_now();
         let (christmas_starts, christmas_ends) = test_time("Dec 25, 2000");
         add_vacation(
@@ -1273,7 +1358,13 @@ mod tests {
         );
         let events = log.events_in_range(&christmas_starts, &christmas_ends);
         assert_eq!(0, events.len(), "nothing in log yet");
-        let events = vacation.add_vacation_times(&christmas_starts, &christmas_ends, events, &conf);
+        let events = vacation.add_vacation_times(
+            &christmas_starts,
+            &christmas_ends,
+            events,
+            &conf,
+            Some(now.clone()),
+        );
         assert_eq!(1, events.len(), "log now has one event");
         assert_eq!(
             conf.day_length * (60.0 * 60.0),
@@ -1292,14 +1383,15 @@ mod tests {
             "expected description"
         );
         assert_eq!(0, events[0].tags.len(), "no tags");
-        cleanup();
+        cleanup(disambiguator);
     }
 
     #[test]
     fn no_workdays() {
-        let mut log = test_log_controller(true);
-        let mut vacation = test_vacation_controller(true);
-        let mut conf = test_configuration();
+        let disambiguator = "no_workdays";
+        let mut log = test_log_controller(true, disambiguator);
+        let mut vacation = test_vacation_controller(true, disambiguator);
+        let mut conf = test_configuration(disambiguator);
         conf.workdays("");
         let (christmas_starts, christmas_ends) = test_time("Dec 25, 2000");
         add_vacation(
@@ -1313,16 +1405,23 @@ mod tests {
         );
         let events = log.events_in_range(&christmas_starts, &christmas_ends);
         assert_eq!(0, events.len(), "nothing in log yet");
-        let events = vacation.add_vacation_times(&christmas_starts, &christmas_ends, events, &conf);
+        let events = vacation.add_vacation_times(
+            &christmas_starts,
+            &christmas_ends,
+            events,
+            &conf,
+            Some(test_now()),
+        );
         assert_eq!(0, events.len(), "still nothing in log");
-        cleanup();
+        cleanup(disambiguator);
     }
 
     #[test]
     fn repetition() {
-        let mut log = test_log_controller(true);
-        let mut vacation = test_vacation_controller(true);
-        let mut conf = test_configuration();
+        let disambiguator = "repetition";
+        let mut log = test_log_controller(true, disambiguator);
+        let mut vacation = test_vacation_controller(true, disambiguator);
+        let mut conf = test_configuration(disambiguator);
         conf.workdays("SMTWHFA");
         let now = test_now();
         let (christmas_starts, christmas_ends) = test_time("Dec 25, 1999");
@@ -1341,7 +1440,13 @@ mod tests {
         let (christmas_starts, christmas_ends) = test_time("Dec 25, 2000");
         let events = log.events_in_range(&christmas_starts, &christmas_ends);
         assert_eq!(0, events.len(), "nothing in log yet");
-        let events = vacation.add_vacation_times(&christmas_starts, &christmas_ends, events, &conf);
+        let events = vacation.add_vacation_times(
+            &christmas_starts,
+            &christmas_ends,
+            events,
+            &conf,
+            Some(now.clone()),
+        );
         assert_eq!(1, events.len(), "log now has one event");
         assert_eq!(
             conf.day_length * (60.0 * 60.0),
@@ -1360,14 +1465,15 @@ mod tests {
             "expected description"
         );
         assert_eq!(0, events[0].tags.len(), "no tags");
-        cleanup();
+        cleanup(disambiguator);
     }
 
     #[test]
     fn repetition_over() {
-        let mut log = test_log_controller(true);
-        let mut vacation = test_vacation_controller(true);
-        let mut conf = test_configuration();
+        let disambiguator = "repetition_over";
+        let mut log = test_log_controller(true, disambiguator);
+        let mut vacation = test_vacation_controller(true, disambiguator);
+        let mut conf = test_configuration(disambiguator);
         conf.workdays("SMTWHFA");
         let (christmas_starts, christmas_ends) = test_time("Dec 25, 1999");
         add_vacation(
@@ -1389,16 +1495,23 @@ mod tests {
         let (christmas_starts, christmas_ends) = test_time("Dec 25, 2000");
         let events = log.events_in_range(&christmas_starts, &christmas_ends);
         assert_eq!(0, events.len(), "nothing in log yet");
-        let events = vacation.add_vacation_times(&christmas_starts, &christmas_ends, events, &conf);
+        let events = vacation.add_vacation_times(
+            &christmas_starts,
+            &christmas_ends,
+            events,
+            &conf,
+            Some(test_now()),
+        );
         assert_eq!(0, events.len(), "still nothing in log");
-        cleanup();
+        cleanup(disambiguator);
     }
 
     #[test]
     fn repetition_not_yet_begun() {
-        let mut log = test_log_controller(true);
-        let mut vacation = test_vacation_controller(true);
-        let mut conf = test_configuration();
+        let disambiguator = "repetition_not_yet_begun";
+        let mut log = test_log_controller(true, disambiguator);
+        let mut vacation = test_vacation_controller(true, disambiguator);
+        let mut conf = test_configuration(disambiguator);
         conf.workdays("SMTWHFA");
         let (christmas_starts, christmas_ends) = test_time("Dec 25, 1999");
         add_vacation(
@@ -1417,16 +1530,23 @@ mod tests {
         let (christmas_starts, christmas_ends) = test_time("Dec 25, 2000");
         let events = log.events_in_range(&christmas_starts, &christmas_ends);
         assert_eq!(0, events.len(), "nothing in log yet");
-        let events = vacation.add_vacation_times(&christmas_starts, &christmas_ends, events, &conf);
+        let events = vacation.add_vacation_times(
+            &christmas_starts,
+            &christmas_ends,
+            events,
+            &conf,
+            Some(test_now()),
+        );
         assert_eq!(0, events.len(), "still nothing in log");
-        cleanup();
+        cleanup(disambiguator);
     }
 
     #[test]
     fn monthly_repetition() {
-        let mut log = test_log_controller(true);
-        let mut vacation = test_vacation_controller(true);
-        let mut conf = test_configuration();
+        let disambiguator = "monthly_repetition";
+        let mut log = test_log_controller(true, disambiguator);
+        let mut vacation = test_vacation_controller(true, disambiguator);
+        let mut conf = test_configuration(disambiguator);
         conf.workdays("SMTWHFA");
         let now = test_now();
         let (ides_starts, ides_ends) = test_time("Dec 15, 1999");
@@ -1445,7 +1565,8 @@ mod tests {
         let (ides_starts, ides_ends) = test_time("Jan 15, 2000");
         let events = log.events_in_range(&ides_starts, &ides_ends);
         assert_eq!(0, events.len(), "nothing in log yet");
-        let events = vacation.add_vacation_times(&ides_starts, &ides_ends, events, &conf);
+        let events =
+            vacation.add_vacation_times(&ides_starts, &ides_ends, events, &conf, Some(now.clone()));
         assert_eq!(1, events.len(), "log now has one event");
         assert_eq!(
             conf.day_length * (60.0 * 60.0),
@@ -1464,14 +1585,73 @@ mod tests {
             "expected description"
         );
         assert_eq!(0, events[0].tags.len(), "no tags");
-        cleanup();
+        cleanup(disambiguator);
+    }
+
+    #[test]
+    fn one_before() {
+        let disambiguator = "one_before";
+        let mut log = test_log_controller(true, disambiguator);
+        let mut vacation = test_vacation_controller(true, disambiguator);
+        let mut conf = test_configuration(disambiguator);
+        conf.workdays("SMTWHFA");
+        let (christmas_starts, christmas_ends) = test_time("Dec 25, 1999");
+        add_vacation(
+            &mut vacation,
+            "Christmas",
+            vec![],
+            &christmas_starts,
+            &christmas_ends,
+            None,
+            Some("annual"),
+        );
+        vacation
+            .set_effective_as_of(1, &christmas_starts)
+            .expect("could set effective date of repetition to time in past");
+        let (new_start, new_end) = test_time("Dec 24, 2000");
+        let events = log.events_in_range(&new_start, &new_end);
+        assert_eq!(0, events.len(), "nothing in log yet");
+        let events =
+            vacation.add_vacation_times(&new_start, &new_end, events, &conf, Some(test_now()));
+        assert_eq!(0, events.len(), "still nothing");
+        cleanup(disambiguator);
+    }
+
+    #[test]
+    fn one_after() {
+        let disambiguator = "one_after";
+        let mut log = test_log_controller(true, disambiguator);
+        let mut vacation = test_vacation_controller(true, disambiguator);
+        let mut conf = test_configuration(disambiguator);
+        conf.workdays("SMTWHFA");
+        let (christmas_starts, christmas_ends) = test_time("Dec 25, 1999");
+        add_vacation(
+            &mut vacation,
+            "Christmas",
+            vec![],
+            &christmas_starts,
+            &christmas_ends,
+            None,
+            Some("annual"),
+        );
+        vacation
+            .set_effective_as_of(1, &christmas_starts)
+            .expect("could set effective date of repetition to time in past");
+        let (new_start, new_end) = test_time("Dec 26, 2000");
+        let events = log.events_in_range(&new_start, &new_end);
+        assert_eq!(0, events.len(), "nothing in log yet");
+        let events =
+            vacation.add_vacation_times(&new_start, &new_end, events, &conf, Some(test_now()));
+        assert_eq!(0, events.len(), "still nothing");
+        cleanup(disambiguator);
     }
 
     #[test]
     fn simple_flex() {
-        let mut log = test_log_controller(true);
-        let mut vacation = test_vacation_controller(true);
-        let mut conf = test_configuration();
+        let disambiguator = "simple_flex";
+        let mut log = test_log_controller(true, disambiguator);
+        let mut vacation = test_vacation_controller(true, disambiguator);
+        let mut conf = test_configuration(disambiguator);
         conf.workdays("SMTWHFA");
         let now = test_now();
         let (christmas_eve_starts, christmas_eve_ends) = test_time("Dec 24, 2000");
@@ -1488,11 +1668,16 @@ mod tests {
         add_event(&mut log, &task_start, "working a bit");
         let task_end = task_start + Duration::hours(4);
         end_event(&mut log, &task_end);
-        let mut log = test_log_controller(false);
+        let mut log = test_log_controller(false, disambiguator);
         let events = log.events_in_range(&christmas_eve_starts, &christmas_eve_ends);
         assert_eq!(1, events.len(), "the one event in log");
-        let events =
-            vacation.add_vacation_times(&christmas_eve_starts, &christmas_eve_ends, events, &conf);
+        let events = vacation.add_vacation_times(
+            &christmas_eve_starts,
+            &christmas_eve_ends,
+            events,
+            &conf,
+            Some(now.clone()),
+        );
         assert_eq!(2, events.len(), "task and vacation in log");
         let events = events
             .into_iter()
@@ -1516,6 +1701,6 @@ mod tests {
             "expected description"
         );
         assert_eq!(0, events[0].tags.len(), "no tags");
-        cleanup();
+        cleanup(disambiguator);
     }
 }

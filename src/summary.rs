@@ -84,8 +84,13 @@ pub fn run(matches: &ArgMatches) {
             } else {
                 Event::gather_by_day_and_merge(events, &end)
             };
-            let events =
-                VacationController::read(None).add_vacation_times(&start, &end, events, &configuration);
+            let events = VacationController::read(None).add_vacation_times(
+                &start,
+                &end,
+                events,
+                &configuration,
+                None,
+            );
             if events.is_empty() {
                 warn("no event found", &configuration)
             } else {
