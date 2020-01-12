@@ -79,7 +79,7 @@ fn find_change_offset() -> Option<(usize, usize)> {
             .expect("failed to read line from backup log file");
         edited
             .read_line(&mut buf2)
-            .expect("failed to read line from backup log file");
+            .expect("failed to read line from edited log file");
         if buf1 != buf2 {
             return Some((byte_count, line_count));
         }
@@ -203,7 +203,7 @@ fn validate(byte_offset: usize, starting_line: usize) -> Option<(usize, usize)> 
             if error_count == 1 {
                 first_error = line_number + 1;
             }
-            let bytes: Vec<u8> = format!("# ERROR {}: {}\n# ", error_count, msg)
+            let bytes: Vec<u8> = format!("# ERROR {} on {}: {}\n# ", error_count, now.format("%F at %r"), msg)
                 .bytes()
                 .collect();
             writer
