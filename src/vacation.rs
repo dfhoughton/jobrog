@@ -1763,7 +1763,7 @@ mod tests {
         assert_eq!(0, events[0].tags.len(), "no tags");
         cleanup(disambiguator);
     }
-    
+
     #[test]
     fn long_vacation() {
         let disambiguator = "long_vacation";
@@ -1812,6 +1812,143 @@ mod tests {
             );
             assert_eq!(0, events[0].tags.len(), "no tags");
         }
+        cleanup(disambiguator);
+    }
+
+    #[test]
+    fn simple_fixed() {
+        let disambiguator = "simple_fixed";
+        let mut log = test_log_controller(true, disambiguator);
+        let mut vacation = test_vacation_controller(true, disambiguator);
+        let mut conf = test_configuration(disambiguator);
+        conf.workdays("SMTWHFA");
+        let now = test_now();
+        let (random_day_starts, random_day_ends) = test_time("Dec 11, 2000 ");
+        let vacation_starts = random_day_starts + Duration::hours(10);
+        let vacation_ends = vacation_starts + Duration::hours(2);
+        add_vacation(
+            &mut vacation,
+            "random time off",
+            vec![],
+            &vacation_starts,
+            &vacation_ends,
+            Some("fixed"),
+            None,
+        );
+        let task_start = random_day_starts + Duration::hours(8);
+        add_event(&mut log, &task_start, "working a bit");
+        let task_end = task_start + Duration::hours(2);
+        end_event(&mut log, &task_end);
+        let mut log = test_log_controller(false, disambiguator);
+        let events = log.events_in_range(&random_day_starts, &random_day_ends);
+        assert_eq!(1, events.len(), "the one event in log");
+        let events = vacation.add_vacation_times(
+            &random_day_starts,
+            &random_day_ends,
+            events,
+            &conf,
+            Some(now.clone()),
+        );
+        assert_eq!(2, events.len(), "task and vacation in log");
+        let events = events
+            .into_iter()
+            .filter(|e| e.vacation)
+            .collect::<Vec<Event>>();
+        assert_eq!(1, events.len(), "only one vacation item added");
+        assert_eq!(
+            (2.0 * 60.0 * 60.0),
+            events[0].duration(&now),
+            "vacation lasts two hours"
+        );
+        assert_eq!(
+            vacation_starts, events[0].start,
+            "vacation starts when expected"
+        );
+        assert_eq!(
+            Some(vacation_ends),
+            events[0].end,
+            "vacation ends when expected"
+        );
+        assert_eq!(true, events[0].vacation, "event is marked as vacation");
+        assert_eq!(
+            Some(String::from("fixed")),
+            events[0].vacation_type,
+            "expected vacation type"
+        );
+        assert_eq!(
+            String::from("random time off"),
+            events[0].description,
+            "expected description"
+        );
+        assert_eq!(0, events[0].tags.len(), "no tags");
+        cleanup(disambiguator);
+    }
+    #[test]
+    fn fixed_overlapping_task() {
+        let disambiguator = "fixed_overlapping_task";
+        let mut log = test_log_controller(true, disambiguator);
+        let mut vacation = test_vacation_controller(true, disambiguator);
+        let mut conf = test_configuration(disambiguator);
+        conf.workdays("SMTWHFA");
+        let now = test_now();
+        let (random_day_starts, random_day_ends) = test_time("Dec 11, 2000 ");
+        let vacation_starts = random_day_starts + Duration::hours(8);
+        let vacation_ends = vacation_starts + Duration::hours(2);
+        add_vacation(
+            &mut vacation,
+            "random time off",
+            vec![],
+            &vacation_starts,
+            &vacation_ends,
+            Some("fixed"),
+            None,
+        );
+        let task_start = random_day_starts + Duration::hours(8);
+        add_event(&mut log, &task_start, "working a bit");
+        let task_end = task_start + Duration::hours(2);
+        end_event(&mut log, &task_end);
+        let mut log = test_log_controller(false, disambiguator);
+        let events = log.events_in_range(&random_day_starts, &random_day_ends);
+        assert_eq!(1, events.len(), "the one event in log");
+        let events = vacation.add_vacation_times(
+            &random_day_starts,
+            &random_day_ends,
+            events,
+            &conf,
+            Some(now.clone()),
+        );
+        assert_eq!(2, events.len(), "task and vacation in log");
+        let events = events
+            .into_iter()
+            .filter(|e| e.vacation)
+            .collect::<Vec<Event>>();
+        assert_eq!(1, events.len(), "only one vacation item added");
+        assert_eq!(
+            (2.0 * 60.0 * 60.0),
+            events[0].duration(&now),
+            "vacation lasts two hours"
+        );
+        assert_eq!(
+            vacation_starts, events[0].start,
+            "vacation starts when expected"
+        );
+        assert_eq!(
+            Some(vacation_ends),
+            events[0].end,
+            "vacation ends when expected"
+        );
+        assert_eq!(true, events[0].vacation, "event is marked as vacation");
+        assert_eq!(
+            Some(String::from("fixed")),
+            events[0].vacation_type,
+            "expected vacation type"
+        );
+        assert_eq!(
+            String::from("random time off"),
+            events[0].description,
+            "expected description"
+        );
+        assert_eq!(0, events[0].tags.len(), "no tags");
         cleanup(disambiguator);
     }
 }
