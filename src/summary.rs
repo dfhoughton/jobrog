@@ -46,17 +46,20 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
 }
 
 pub fn run(matches: &ArgMatches) {
-    let phrase = remainder("period", matches);
+    let mut phrase = remainder("period", matches);
     let date = matches.value_of("date").unwrap_or(&phrase);
     let configuration = Configuration::read(None);
-    if phrase.len() > 0 && matches.is_present("date") {
-        warn(
-            format!(
-                "--date option '{}' is overriding '{}' as a time expression",
-                date, phrase
-            ),
-            &configuration,
-        );
+    if let Some(expression) = matches.value_of("date") {
+        if phrase != "today" {
+            warn(
+                format!(
+                    "--date option '{}' is overriding '{}' as a time expression",
+                    date, phrase
+                ),
+                &configuration,
+            );
+        }
+        phrase = expression.to_owned();
     }
     if let Ok((start, end, _)) = parse(&phrase, configuration.two_timer_config()) {
         let filter = Filter::new(matches);
