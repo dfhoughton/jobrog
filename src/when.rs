@@ -84,12 +84,13 @@ pub fn run(matches: &ArgMatches) {
                 }
                 let seconds_required = hours_required * (60.0 * 60.0);
                 let delta = seconds_required - seconds_worked;
+                let delta_hours = delta / (60.0 * 60.0);
                 let completion_time = now + Duration::seconds(delta as i64);
                 if completion_time > now {
                     println!(
                         "you will be finished at {}, {:.2} hours from now",
                         tell_time(&now, &completion_time),
-                        delta
+                        delta_hours
                     );
                 } else {
                     println!("you were done at {}", tell_time(&now, &completion_time));
@@ -102,8 +103,8 @@ pub fn run(matches: &ArgMatches) {
 
 fn tell_time(now: &NaiveDateTime, then: &NaiveDateTime) -> String {
     if now.date() == then.date() {
-        format!("{}", then.format("%k:%M:%S %p"))
+        format!("{}", then.format("%l:%M:%S %p"))
     } else {
-        format!("{}", then.format("%k:%M:%S %p on %A, %e %B %Y"))
+        format!("{}", then.format("%l:%M:%S %p on %A, %e %B %Y"))
     }
 }
