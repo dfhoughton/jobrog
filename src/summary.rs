@@ -14,7 +14,7 @@ use two_timer::{parsable, parse};
 pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
     mast.subcommand(common_search_or_filter_arguments(
         SubCommand::with_name("summary")
-            .aliases(&["s", "su", "sum", "summ", "summa", "summar"])
+            .aliases(&["s", "su", "sum", "summ", "summa", "summar", "to"]) // the last is there because I'm used to there being a today subcommand which does what summary with no further arguments does in jobrog
             .about("says when you will have worked all the hours expected within the given period")
             .after_help(".")
             .arg(
