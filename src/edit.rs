@@ -4,7 +4,7 @@ extern crate clap;
 use crate::configure::Configuration;
 use crate::log::{parse_line, timestamp, Item};
 use crate::util::{base_dir, fatal, log_path, warn};
-use chrono::{Local, NaiveDateTime, NaiveDate, Duration};
+use chrono::{Local, NaiveDateTime};
 use clap::{App, Arg, ArgMatches, SubCommand};
 use std::fs::{copy, File};
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
@@ -297,6 +297,7 @@ fn validate(
 mod tests {
     use super::*;
     use crate::log::{Event, LogLine};
+    use chrono::{Duration, NaiveDate};
 
     fn create_log<T: ToString>(disambiguator: &str, lines: &[T]) -> (String, PathBuf) {
         let disambiguator = format!("log_{}", disambiguator);
@@ -371,8 +372,13 @@ mod tests {
         }
         let (name, buff) = create_log(disambiguator, &events);
         let backup_name = format!("{}.bak", disambiguator);
-        let(backup_name, backup_buff) = create_log(&backup_name, &events);
+        let (backup_name, backup_buff) = create_log(&backup_name, &events);
         validation_messages(0, 0, &conf, Some(&name), Some(&backup_name));
-        cleanup(vec![buff, backup_buff, configuration_path(disambiguator), validation_path]);
+        cleanup(vec![
+            buff,
+            backup_buff,
+            configuration_path(disambiguator),
+            validation_path,
+        ]);
     }
 }

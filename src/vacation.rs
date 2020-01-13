@@ -6,7 +6,7 @@ extern crate regex;
 extern crate two_timer;
 
 use crate::configure::Configuration;
-use crate::log::{parse_tags, parse_timestamp, tags, timestamp, Done, Event};
+use crate::log::{parse_tags, parse_timestamp, tags, timestamp, Event};
 use crate::util::{base_dir, fatal, remainder, some_nws, warn, Style};
 use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, Timelike};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
@@ -1228,7 +1228,7 @@ fn start_workday(time: &NaiveDateTime, conf: &Configuration) -> NaiveDateTime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::log::{Event, LogController};
+    use crate::log::{Done, Event, LogController};
     use std::str::FromStr;
 
     // if the test panics, this leaves the file in the development directory for examination
