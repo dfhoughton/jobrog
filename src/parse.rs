@@ -1,13 +1,13 @@
 extern crate chrono;
 extern crate clap;
-extern crate two_timer;
 extern crate colonnade;
+extern crate two_timer;
 
 use crate::configure::Configuration;
-use crate::util::{fatal, remainder, some_nws, Color};
-use clap::{App, SubCommand, ArgMatches, Arg};
-use two_timer::parse;
+use crate::util::{fatal, remainder, some_nws, Style};
+use clap::{App, Arg, ArgMatches, SubCommand};
 use colonnade::Colonnade;
+use two_timer::parse;
 
 fn after_help() -> &'static str {
     "Natural language time expressions are easy to produce, but it isn't always obvious
@@ -26,18 +26,26 @@ the end of the range.
 pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
     mast.subcommand(
         SubCommand::with_name("parse-time")
-            .aliases(&["p", "pa", "par", "pars", "parse", "parse-", "parse-t", "parse-ti", "parse-tim"])
+            .aliases(&[
+                "p",
+                "pa",
+                "par",
+                "pars",
+                "parse",
+                "parse-",
+                "parse-t",
+                "parse-ti",
+                "parse-tim",
+            ])
             .about("see the start and end timestamps you get from a particular time expression")
             .after_help(after_help())
             .arg(
                 Arg::with_name("period")
                     .help("time expression")
-                    .long_help(
-                        "A time expression. E.g., 'last week' or '2016-10-2'.",
-                    )
+                    .long_help("A time expression. E.g., 'last week' or '2016-10-2'.")
                     .value_name("word")
-                    .multiple(true)
-            )
+                    .multiple(true),
+            ),
     )
 }
 
@@ -50,7 +58,7 @@ pub fn run(matches: &ArgMatches) {
     if some_nws(&phrase) {
         match parse(&phrase.trim(), conf.two_timer_config()) {
             Ok((start, end, range)) => {
-                let color = Color::new(&conf);
+                let color = Style::new(&conf);
                 let data = [
                     [String::from("start"), format!("{}", start)],
                     [String::from("end"), format!("{}", end)],
@@ -71,8 +79,8 @@ pub fn run(matches: &ArgMatches) {
                     println!();
                 }
                 println!();
-            },
-            Err(e) => { fatal(e.msg(), &conf)},
+            }
+            Err(e) => fatal(e.msg(), &conf),
         }
     } else {
         fatal("no time expression provided", &conf);

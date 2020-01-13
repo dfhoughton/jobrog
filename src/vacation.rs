@@ -7,7 +7,7 @@ extern crate two_timer;
 
 use crate::configure::Configuration;
 use crate::log::{parse_tags, parse_timestamp, tags, timestamp, Done, Event};
-use crate::util::{base_dir, fatal, remainder, some_nws, warn, Color};
+use crate::util::{base_dir, fatal, remainder, some_nws, warn, Style};
 use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, Timelike};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use colonnade::{Alignment, Colonnade};
@@ -227,7 +227,7 @@ pub fn run(matches: &ArgMatches) {
                 row.push(v.over_as_of_description());
                 data.push(row);
             }
-            let color = Color::new(&conf);
+            let color = Style::new(&conf);
             let mut table = Colonnade::new(9, conf.width())
                 .expect("could not create table to display vacation records");
             table

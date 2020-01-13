@@ -8,7 +8,6 @@ extern crate regex;
 use crate::configure::Configuration;
 use crate::log::{Event, Item, LogController, Note};
 use ansi_term::Colour::{Blue, Cyan, Green, Purple, Red};
-use ansi_term::Style;
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime, Timelike};
 use clap::{App, Arg, ArgMatches};
 use colonnade::{Alignment, Colonnade};
@@ -190,7 +189,7 @@ pub fn display_notes(
     end: &NaiveDateTime,
     configuration: &Configuration,
 ) {
-    let color = Color::new(configuration);
+    let color = Style::new(configuration);
     let same_year = start.year() == end.year();
     let mut last_time: Option<NaiveDateTime> = None;
     let mut last_date: Option<NaiveDate> = None;
@@ -235,7 +234,7 @@ pub fn display_events(
     end: &NaiveDateTime,
     configuration: &Configuration,
 ) {
-    let color = Color::new(configuration);
+    let color = Style::new(configuration);
     let mut last_time: Option<NaiveDateTime> = None;
     let mut last_date: Option<NaiveDate> = None;
     let mut durations: BTreeMap<String, f32> = BTreeMap::new();
@@ -357,12 +356,12 @@ pub fn display_events(
 }
 
 pub fn warn<T: ToString>(msg: T, conf: &Configuration) {
-    let color = Color::new(&conf);
+    let color = Style::new(&conf);
     eprintln!("{} {}", color.purple("warning:"), msg.to_string());
 }
 
 pub fn fatal<T: ToString>(msg: T, conf: &Configuration) {
-    let color = Color::new(&conf);
+    let color = Style::new(&conf);
     eprintln!("{} {}", color.bold(color.red("error:")), msg.to_string());
     std::process::exit(1);
 }
@@ -453,15 +452,15 @@ pub fn init() {
 }
 
 // putting this into a common struct so we can easily turn color off
-pub struct Color<'a> {
+pub struct Style<'a> {
     noop: bool,
     #[allow(dead_code)] // saving this for when the color of individual elements is configurable
     conf: &'a Configuration,
 }
 
-impl<'a> Color<'a> {
-    pub fn new(conf: &'a Configuration) -> Color<'a> {
-        Color {
+impl<'a> Style<'a> {
+    pub fn new(conf: &'a Configuration) -> Style<'a> {
+        Style {
             conf,
             noop: !conf.effective_color().0,
         }
@@ -470,13 +469,16 @@ impl<'a> Color<'a> {
         if self.noop {
             return text.to_string();
         }
-        format!("{}", Style::new().bold().paint(text.to_string()))
+        format!("{}", ansi_term::Style::new().bold().paint(text.to_string()))
     }
     pub fn italic<T: ToString>(&self, text: T) -> String {
         if self.noop {
             return text.to_string();
         }
-        format!("{}", Style::new().italic().paint(text.to_string()))
+        format!(
+            "{}",
+            ansi_term::Style::new().italic().paint(text.to_string())
+        )
     }
     pub fn cyan<T: ToString>(&self, text: T) -> String {
         if self.noop {
