@@ -838,7 +838,7 @@ mod tests {
 
     #[test]
     fn test_events_from_end() {
-        let (items, path) = random_log(100);
+        let (items, path) = random_log(101);
         let mut events = closed_events(items);
         events.reverse();
         let mut log_reader = LogController::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();

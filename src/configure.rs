@@ -115,8 +115,8 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                 Arg::with_name("precision")
                 .long("precision")
                 .help("decimal places of precision in display of time; default value: 2")
-                .long_help("The number of decimal places of precision used in the display of lengths of periods in numbers of hours. If the number is 0, probably not what you want, all periods will be rounded to a whole number of hours. The default value is 2.")
-                .possible_values(&["0", "1", "2", "3"])
+                .long_help("The number of decimal places of precision used in the display of lengths of periods in numbers of hours. If the number is 0, probably not what you want, all periods will be rounded to a whole number of hours. The default value is 2. If the precision is 'quarter' times will be rounded to the quarter hour for display.")
+                .possible_values(&["0", "1", "2", "3", "quarter"])
                 .value_name("int")
             )
             .arg(
@@ -280,7 +280,10 @@ pub fn run(matches: &ArgMatches) {
         };
         let beginning_work_day = (hour, minute);
         if conf.beginning_work_day == beginning_work_day {
-            warn(format!("beginning-work-day is already {}:{:02}!", hour, minute), &conf);
+            warn(
+                format!("beginning-work-day is already {}:{:02}!", hour, minute),
+                &conf,
+            );
         } else {
             println!("setting beginning-work-day to {}:{:02}!", hour, minute);
             conf.beginning_work_day = beginning_work_day;
@@ -296,6 +299,19 @@ pub fn run(matches: &ArgMatches) {
             } else {
                 println!("setting day-length to {}!", v);
                 conf.day_length = v;
+                write = true;
+            }
+        }
+    }
+    if matches.is_present("precision") {
+        did_something = true;
+        if let Some(v) = matches.value_of("precision") {
+            let v = Precision::from_s(v);
+            if v == conf.precision {
+                warn(format!("precision is already {}!", v.to_s()), &conf);
+            } else {
+                println!("setting precision to {}!", v.to_s());
+                conf.precision = v;
                 write = true;
             }
         }
@@ -359,7 +375,7 @@ pub fn run(matches: &ArgMatches) {
                     write = true;
                 }
                 "precision" => {
-                    conf.precision = PRECISION.parse().unwrap();
+                    conf.precision = Precision::from_s(PRECISION);
                     write = true;
                 }
                 "start-pay-period" => {
@@ -394,7 +410,10 @@ pub fn run(matches: &ArgMatches) {
             did_something = true;
         }
         let attributes = vec![
-            vec![String::from("precision"), format!("{}", conf.precision)],
+            vec![
+                String::from("precision"),
+                format!("{}", conf.precision.to_s()),
+            ],
             vec![
                 String::from("max-width"),
                 if conf.max_width.is_some() {
@@ -490,12 +509,85 @@ pub fn run(matches: &ArgMatches) {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum Precision {
+    P0,
+    P1,
+    P2,
+    P3,
+    Quarter,
+}
+
+impl Precision {
+    fn to_s(&self) -> &str {
+        match self {
+            Precision::P0 => "0",
+            Precision::P1 => "1",
+            Precision::P2 => "2",
+            Precision::P3 => "3",
+            Precision::Quarter => "quarter",
+        }
+    }
+    fn from_s(s: &str) -> Precision {
+        match s {
+            "0" => Precision::P0,
+            "1" => Precision::P1,
+            "2" => Precision::P2,
+            "3" => Precision::P3,
+            "quarter" => Precision::Quarter,
+            _ => unreachable!(),
+        }
+    }
+    pub fn precision(&self) -> usize {
+        match self {
+            Precision::P0 => 0,
+            Precision::P1 => 1,
+            Precision::P2 => 2,
+            Precision::P3 => 3,
+            Precision::Quarter => 2,
+        }
+    }
+    pub fn prepare(&self, n: f32) -> f32 {
+        match self {
+            Precision::Quarter => (n * 4.0).round() / 4.0,
+            _ => n,
+        }
+    }
+}
+
+impl PartialEq for Precision {
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            Precision::P0 => match other {
+                Precision::P0 => true,
+                _ => false,
+            },
+            Precision::P1 => match other {
+                Precision::P1 => true,
+                _ => false,
+            },
+            Precision::P2 => match other {
+                Precision::P2 => true,
+                _ => false,
+            },
+            Precision::P3 => match other {
+                Precision::P3 => true,
+                _ => false,
+            },
+            Precision::Quarter => match other {
+                Precision::Quarter => true,
+                _ => false,
+            },
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Configuration {
     pub day_length: f32,
     pub editor: Option<String>,
     pub length_pay_period: u32,
-    pub precision: u8,
+    pub precision: Precision,
     pub start_pay_period: Option<NaiveDate>,
     pub sunday_begins_week: bool,
     pub beginning_work_day: (usize, usize),
@@ -566,10 +658,11 @@ impl Configuration {
                     .get_from_or(Some("time"), "pay-period-length", LENGTH_PAY_PERIOD)
                     .parse()
                     .unwrap(),
-                precision: ini
-                    .get_from_or(Some("summary"), "precision", PRECISION)
-                    .parse()
-                    .unwrap(),
+                precision: Precision::from_s(ini.get_from_or(
+                    Some("summary"),
+                    "precision",
+                    PRECISION,
+                )),
                 start_pay_period: start_pay_period,
                 sunday_begins_week: ini.get_from_or(
                     Some("time"),
@@ -594,7 +687,7 @@ impl Configuration {
                 editor: None,
                 length_pay_period: LENGTH_PAY_PERIOD.parse().unwrap(),
                 beginning_work_day: BEGINNING_WORK_DAY.clone(),
-                precision: PRECISION.parse().unwrap(),
+                precision: Precision::from_s(PRECISION),
                 start_pay_period: None,
                 color: None,
                 sunday_begins_week: SUNDAY_BEGINS_WEEK == "true",
@@ -625,9 +718,9 @@ impl Configuration {
             ini.with_section(Some("time"))
                 .set("pay-period-length", format!("{}", self.length_pay_period));
         }
-        if self.precision != PRECISION.parse::<u8>().unwrap() {
+        if self.precision != Precision::from_s(PRECISION) {
             ini.with_section(Some("summary"))
-                .set("precision", format!("{}", self.precision));
+                .set("precision", format!("{}", self.precision.to_s()));
         }
         if self.start_pay_period.is_some() {
             let spp = self.start_pay_period.unwrap();

@@ -17,6 +17,8 @@ use std::collections::BTreeMap;
 use std::fs::{create_dir, File};
 use std::io::Write;
 
+const ONGOING: &str = "ongoing";
+
 // a collection of arguments used in many subcommands concerned with searching for or filtering events
 pub fn common_search_or_filter_arguments(
     app: App<'static, 'static>,
@@ -167,12 +169,16 @@ fn time_string(this_time: &Option<NaiveDateTime>, last_time: &Option<NaiveDateTi
             };
         format!("{}", this_time.format(format))
     } else {
-        String::from("ongoing")
+        String::from(ONGOING)
     }
 }
 
-fn duration_string(duration: f32, precision: u8) -> String {
-    format!("{0:.1$}", duration / (60.0 * 60.0), (precision as usize))
+fn duration_string(duration: f32, conf: &Configuration) -> String {
+    format!(
+        "{0:.1$}",
+        conf.precision.prepare(duration / (60.0 * 60.0)),
+        conf.precision.precision()
+    )
 }
 
 fn date_string(date: &NaiveDate, same_year: bool) -> String {
@@ -261,7 +267,7 @@ pub fn display_events(
             parts.push(time_string(&e.end, &last_time));
             last_time = e.end;
             let duration = e.duration(&now);
-            parts.push(duration_string(duration, configuration.precision));
+            parts.push(duration_string(duration, configuration));
             parts.push(e.tags.join(", "));
             for tag in e.tags.iter() {
                 *durations.entry(tag.clone()).or_insert(0.0) += duration;
@@ -316,28 +322,25 @@ pub fn display_events(
     tags_table.columns[1].alignment(Alignment::Right);
     let mut data = vec![vec![
         String::from("TOTAL HOURS"),
-        duration_string(total_duration, configuration.precision),
+        duration_string(total_duration, configuration),
     ]];
     let mut header_count = 1;
     if untagged_duration > 0.0 {
         header_count += 1;
         data.push(vec![
             String::from("UNTAGGED"),
-            duration_string(untagged_duration, configuration.precision),
+            duration_string(untagged_duration, configuration),
         ])
     }
     if vacation_duration > 0.0 {
         header_count += 1;
         data.push(vec![
             String::from("VACATION"),
-            duration_string(vacation_duration, configuration.precision),
+            duration_string(vacation_duration, configuration),
         ])
     }
     for (tag, duration) in durations.iter() {
-        data.push(vec![
-            tag.clone(),
-            duration_string(*duration, configuration.precision),
-        ]);
+        data.push(vec![tag.clone(), duration_string(*duration, configuration)]);
     }
     for (offset, row) in tags_table.macerate(data).unwrap().iter().enumerate() {
         for line in row {
