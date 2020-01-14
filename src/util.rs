@@ -298,9 +298,17 @@ pub fn display_events(
             println!("{}", color.blue(date_string(&date, same_year)));
         }
         last_date = Some(date);
+        let ongoing = ONGOING.to_owned();
         for line in row {
             for (cell_num, (margin, cell)) in line.iter().enumerate() {
                 let cell = match cell_num {
+                    2 => {
+                        if cell == &ongoing {
+                            color.purple(cell)
+                        } else {
+                            cell.to_owned()
+                        }
+                    }
                     3 => {
                         if events[offset].vacation {
                             color.purple(cell)
