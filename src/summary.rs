@@ -62,42 +62,52 @@ pub fn run(matches: &ArgMatches) {
         phrase = expression.to_owned();
     }
     if let Ok((start, end, _)) = parse(&phrase, configuration.two_timer_config()) {
-        let filter = Filter::new(matches);
         let mut reader = LogController::new(None).expect("could not read log");
-        check_for_ongoing_event(&mut reader, &configuration);
-        if matches.is_present("notes") {
-            let note: Vec<Note> = reader
-                .notes_in_range(&start, &end)
-                .into_iter()
-                .filter(|n| filter.matches(n))
-                .collect();
-            if note.is_empty() {
-                warn("no note found", &configuration)
+        if let Some((l1, l2)) = reader.limiting_timestamps() {
+            let start = if start < l1 { l1 } else { start };
+            let end = if end > l2 { l2 } else { end };
+            let filter = Filter::new(matches);
+            check_for_ongoing_event(&mut reader, &configuration);
+            if matches.is_present("notes") {
+                let note: Vec<Note> = reader
+                    .notes_in_range(&start, &end)
+                    .into_iter()
+                    .filter(|n| filter.matches(n))
+                    .collect();
+                if note.is_empty() {
+                    warn("no note found", &configuration)
+                } else {
+                    display_notes(note, &start, &end, &configuration);
+                }
             } else {
-                display_notes(note, &start, &end, &configuration);
+                let events = reader
+                    .events_in_range(&start, &end)
+                    .into_iter()
+                    .filter(|n| filter.matches(n))
+                    .collect();
+                let events = if matches.is_present("no-merge") {
+                    Event::gather_by_day(events, &end)
+                } else {
+                    Event::gather_by_day_and_merge(events, &end)
+                };
+                let events = VacationController::read(None).add_vacation_times(
+                    &start,
+                    &end,
+                    events,
+                    &configuration,
+                    None,
+                );
+                if events.is_empty() {
+                    warn("no event found", &configuration)
+                } else {
+                    display_events(events, &start, &end, &configuration);
+                }
             }
         } else {
-            let events = reader
-                .events_in_range(&start, &end)
-                .into_iter()
-                .filter(|n| filter.matches(n))
-                .collect();
-            let events = if matches.is_present("no-merge") {
-                Event::gather_by_day(events, &end)
+            if matches.is_present("notes") {
+                warn("no note found", &configuration)
             } else {
-                Event::gather_by_day_and_merge(events, &end)
-            };
-            let events = VacationController::read(None).add_vacation_times(
-                &start,
-                &end,
-                events,
-                &configuration,
-                None,
-            );
-            if events.is_empty() {
                 warn("no event found", &configuration)
-            } else {
-                display_events(events, &start, &end, &configuration);
             }
         }
     } else {

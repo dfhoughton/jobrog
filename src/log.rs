@@ -112,6 +112,24 @@ impl LogController {
             None
         }
     }
+    // returns first and last timestamps in log, if any
+    pub fn limiting_timestamps(&mut self) -> Option<(NaiveDateTime, NaiveDateTime)> {
+        let i =
+            (0..self.larry.len()).find(|i| parse_line(self.larry.get(*i).unwrap(), *i).has_time());
+        if let Some(i) = i {
+            let item = parse_line(self.larry.get(i).unwrap(), i);
+            let (start, _) = item.time().unwrap();
+            let i = (0..self.larry.len())
+                .rev()
+                .find(|i| parse_line(self.larry.get(*i).unwrap(), *i).has_time())
+                .unwrap();
+            let item = parse_line(self.larry.get(i).unwrap(), i);
+            let (end, _) = item.time().unwrap();
+            Some((start.clone(), end.clone()))
+        } else {
+            None
+        }
+    }
     fn narrow_in(&mut self, time: &NaiveDateTime, start: Item, end: Item) -> Item {
         let start = self.advance_to_first(start);
         let (t1, mut o1) = start.time().unwrap();
@@ -1507,9 +1525,7 @@ impl Event {
         ret
     }
     fn mergeable(&self, other: &Self) -> bool {
-        self.end.is_some()
-            && self.end.unwrap() == other.start
-            && self.tags == other.tags
+        self.end.is_some() && self.end.unwrap() == other.start && self.tags == other.tags
     }
     fn merge(&mut self, other: Self) {
         self.description = self.description.clone() + "; " + &other.description;
