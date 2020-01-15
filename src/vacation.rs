@@ -482,7 +482,11 @@ impl VacationController {
                             break;
                         }
                         if filter.matches(&event) {
-                            unworked_seconds -= duration;
+                            if duration > unworked_seconds {
+                                unworked_seconds = 0;
+                            } else {
+                                unworked_seconds -= duration;
+                            }
                             new_events.push(event);
                             if v.full_day(conf) {
                                 break;

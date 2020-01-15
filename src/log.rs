@@ -1503,7 +1503,7 @@ impl Event {
                             ret.push(e);
                             break;
                         }
-                        let split_date = time.date().and_hms(0, 0, 0) + Duration::days(1);
+                        let split_date = e.start.date().and_hms(0, 0, 0) + Duration::days(1);
                         let (e1, e2) = e.split(split_date);
                         e = e2;
                         ret.push(e1);
