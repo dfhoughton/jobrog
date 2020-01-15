@@ -1,3 +1,4 @@
+extern crate chrono;
 extern crate clap;
 extern crate two_timer;
 
@@ -8,6 +9,7 @@ use crate::util::{
     fatal, remainder, warn,
 };
 use crate::vacation::VacationController;
+use chrono::Duration;
 use clap::{App, Arg, ArgMatches, SubCommand};
 use two_timer::{parsable, parse};
 
@@ -64,6 +66,8 @@ pub fn run(matches: &ArgMatches) {
     if let Ok((start, end, _)) = parse(&phrase, configuration.two_timer_config()) {
         let mut reader = LogController::new(None).expect("could not read log");
         if let Some((l1, l2)) = reader.limiting_timestamps() {
+            let l1 = l1 - Duration::days(1);
+            let l2 = l2 + Duration::days(1);
             let start = if start < l1 { l1 } else { start };
             let end = if end > l2 { l2 } else { end };
             let filter = Filter::new(matches);
