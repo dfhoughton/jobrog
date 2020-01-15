@@ -6,7 +6,7 @@ extern crate regex;
 extern crate two_timer;
 
 use crate::configure::Configuration;
-use crate::log::{parse_tags, parse_timestamp, tags, timestamp, Event};
+use crate::log::{parse_tags, parse_timestamp, tags, timestamp, Event, Filter};
 use crate::util::{base_dir, fatal, remainder, some_nws, warn, Style};
 use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, Timelike};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
@@ -444,6 +444,7 @@ impl VacationController {
         mut events: Vec<Event>, // these events *must be grouped by day*
         conf: &Configuration,
         now: Option<NaiveDateTime>,
+        filter: &Filter,
     ) -> Vec<Event> {
         if self.vacations.is_empty() {
             return events;
@@ -480,10 +481,12 @@ impl VacationController {
                         if duration == 0 {
                             break;
                         }
-                        unworked_seconds -= duration;
-                        new_events.push(event);
-                        if v.full_day(conf) {
-                            break;
+                        if filter.matches(&event) {
+                            unworked_seconds -= duration;
+                            new_events.push(event);
+                            if v.full_day(conf) {
+                                break;
+                            }
                         }
                     } else {
                     }
@@ -1351,6 +1354,7 @@ mod tests {
         let mut vacation = test_vacation_controller(true, disambiguator);
         let conf = test_configuration(disambiguator);
         let now = test_now();
+        let filter = Filter::dummy();
         let (christmas_starts, christmas_ends) = test_time("Dec 25, 2000");
         add_vacation(
             &mut vacation,
@@ -1369,6 +1373,7 @@ mod tests {
             events,
             &conf,
             Some(now.clone()),
+            &filter,
         );
         assert_eq!(1, events.len(), "log now has one event");
         assert_eq!(
@@ -1398,6 +1403,7 @@ mod tests {
         let mut vacation = test_vacation_controller(true, disambiguator);
         let conf = test_configuration(disambiguator);
         let now = test_now();
+        let filter = Filter::dummy();
         let (christmas_starts, christmas_ends) = test_time("Dec 25, 2000");
         add_vacation(
             &mut vacation,
@@ -1416,6 +1422,7 @@ mod tests {
             events,
             &conf,
             Some(now.clone()),
+            &filter,
         );
         assert_eq!(1, events.len(), "log now has one event");
         assert_eq!(
@@ -1452,6 +1459,7 @@ mod tests {
         let mut log = test_log_controller(true, disambiguator);
         let mut vacation = test_vacation_controller(true, disambiguator);
         let mut conf = test_configuration(disambiguator);
+        let filter = Filter::dummy();
         conf.workdays("");
         let (christmas_starts, christmas_ends) = test_time("Dec 25, 2000");
         add_vacation(
@@ -1471,6 +1479,7 @@ mod tests {
             events,
             &conf,
             Some(test_now()),
+            &filter,
         );
         assert_eq!(0, events.len(), "still nothing in log");
         cleanup(disambiguator);
@@ -1484,6 +1493,7 @@ mod tests {
         let mut conf = test_configuration(disambiguator);
         conf.workdays("SMTWHFA");
         let now = test_now();
+        let filter = Filter::dummy();
         let (christmas_starts, christmas_ends) = test_time("Dec 25, 1999");
         add_vacation(
             &mut vacation,
@@ -1506,6 +1516,7 @@ mod tests {
             events,
             &conf,
             Some(now.clone()),
+            &filter,
         );
         assert_eq!(1, events.len(), "log now has one event");
         assert_eq!(
@@ -1535,6 +1546,7 @@ mod tests {
         let mut vacation = test_vacation_controller(true, disambiguator);
         let mut conf = test_configuration(disambiguator);
         conf.workdays("SMTWHFA");
+        let filter = Filter::dummy();
         let (christmas_starts, christmas_ends) = test_time("Dec 25, 1999");
         add_vacation(
             &mut vacation,
@@ -1561,6 +1573,7 @@ mod tests {
             events,
             &conf,
             Some(test_now()),
+            &filter,
         );
         assert_eq!(0, events.len(), "still nothing in log");
         cleanup(disambiguator);
@@ -1573,6 +1586,7 @@ mod tests {
         let mut vacation = test_vacation_controller(true, disambiguator);
         let mut conf = test_configuration(disambiguator);
         conf.workdays("SMTWHFA");
+        let filter = Filter::dummy();
         let (christmas_starts, christmas_ends) = test_time("Dec 25, 1999");
         add_vacation(
             &mut vacation,
@@ -1596,6 +1610,7 @@ mod tests {
             events,
             &conf,
             Some(test_now()),
+            &filter,
         );
         assert_eq!(0, events.len(), "still nothing in log");
         cleanup(disambiguator);
@@ -1609,6 +1624,7 @@ mod tests {
         let mut conf = test_configuration(disambiguator);
         conf.workdays("SMTWHFA");
         let now = test_now();
+        let filter = Filter::dummy();
         let (ides_starts, ides_ends) = test_time("Dec 15, 1999");
         add_vacation(
             &mut vacation,
@@ -1625,8 +1641,14 @@ mod tests {
         let (ides_starts, ides_ends) = test_time("Jan 15, 2000");
         let events = log.events_in_range(&ides_starts, &ides_ends);
         assert_eq!(0, events.len(), "nothing in log yet");
-        let events =
-            vacation.add_vacation_times(&ides_starts, &ides_ends, events, &conf, Some(now.clone()));
+        let events = vacation.add_vacation_times(
+            &ides_starts,
+            &ides_ends,
+            events,
+            &conf,
+            Some(now.clone()),
+            &filter,
+        );
         assert_eq!(1, events.len(), "log now has one event");
         assert_eq!(
             conf.day_length * (60.0 * 60.0),
@@ -1655,6 +1677,7 @@ mod tests {
         let mut vacation = test_vacation_controller(true, disambiguator);
         let mut conf = test_configuration(disambiguator);
         conf.workdays("SMTWHFA");
+        let filter = Filter::dummy();
         let (christmas_starts, christmas_ends) = test_time("Dec 25, 1999");
         add_vacation(
             &mut vacation,
@@ -1671,8 +1694,14 @@ mod tests {
         let (new_start, new_end) = test_time("Dec 24, 2000");
         let events = log.events_in_range(&new_start, &new_end);
         assert_eq!(0, events.len(), "nothing in log yet");
-        let events =
-            vacation.add_vacation_times(&new_start, &new_end, events, &conf, Some(test_now()));
+        let events = vacation.add_vacation_times(
+            &new_start,
+            &new_end,
+            events,
+            &conf,
+            Some(test_now()),
+            &filter,
+        );
         assert_eq!(0, events.len(), "still nothing");
         cleanup(disambiguator);
     }
@@ -1684,6 +1713,7 @@ mod tests {
         let mut vacation = test_vacation_controller(true, disambiguator);
         let mut conf = test_configuration(disambiguator);
         conf.workdays("SMTWHFA");
+        let filter = Filter::dummy();
         let (christmas_starts, christmas_ends) = test_time("Dec 25, 1999");
         add_vacation(
             &mut vacation,
@@ -1700,8 +1730,14 @@ mod tests {
         let (new_start, new_end) = test_time("Dec 26, 2000");
         let events = log.events_in_range(&new_start, &new_end);
         assert_eq!(0, events.len(), "nothing in log yet");
-        let events =
-            vacation.add_vacation_times(&new_start, &new_end, events, &conf, Some(test_now()));
+        let events = vacation.add_vacation_times(
+            &new_start,
+            &new_end,
+            events,
+            &conf,
+            Some(test_now()),
+            &filter,
+        );
         assert_eq!(0, events.len(), "still nothing");
         cleanup(disambiguator);
     }
@@ -1714,6 +1750,7 @@ mod tests {
         let mut conf = test_configuration(disambiguator);
         conf.workdays("SMTWHFA");
         let now = test_now();
+        let filter = Filter::dummy();
         let (christmas_eve_starts, christmas_eve_ends) = test_time("Dec 24, 2000");
         add_vacation(
             &mut vacation,
@@ -1737,6 +1774,7 @@ mod tests {
             events,
             &conf,
             Some(now.clone()),
+            &filter,
         );
         assert_eq!(2, events.len(), "task and vacation in log");
         let events = events
@@ -1772,6 +1810,7 @@ mod tests {
         let mut conf = test_configuration(disambiguator);
         conf.workdays("SMTWHFA");
         let now = test_now();
+        let filter = Filter::dummy();
         let (vacation_starts, vacation_ends) = test_time("Dec 23, 2000 - Dec 31, 2000");
         add_vacation(
             &mut vacation,
@@ -1792,6 +1831,7 @@ mod tests {
                 events,
                 &conf,
                 Some(now.clone()),
+                &filter,
             );
             assert_eq!(1, events.len(), "log now has one event");
             assert_eq!(
@@ -1823,6 +1863,7 @@ mod tests {
         let mut conf = test_configuration(disambiguator);
         conf.workdays("SMTWHFA");
         let now = test_now();
+        let filter = Filter::dummy();
         let (random_day_starts, random_day_ends) = test_time("Dec 11, 2000 ");
         let vacation_starts = random_day_starts + Duration::hours(10);
         let vacation_ends = vacation_starts + Duration::hours(2);
@@ -1848,6 +1889,7 @@ mod tests {
             events,
             &conf,
             Some(now.clone()),
+            &filter,
         );
         assert_eq!(2, events.len(), "task and vacation in log");
         let events = events
@@ -1891,6 +1933,7 @@ mod tests {
         let mut conf = test_configuration(disambiguator);
         conf.workdays("SMTWHFA");
         let now = test_now();
+        let filter = Filter::dummy();
         let (random_day_starts, random_day_ends) = test_time("Dec 11, 2000 ");
         let vacation_starts = random_day_starts + Duration::hours(8);
         let vacation_ends = vacation_starts + Duration::hours(2);
@@ -1916,6 +1959,7 @@ mod tests {
             events,
             &conf,
             Some(now.clone()),
+            &filter,
         );
         assert_eq!(2, events.len(), "task and vacation in log");
         let events = events

@@ -96,6 +96,7 @@ pub fn run(matches: &ArgMatches) {
                     events,
                     &configuration,
                     None,
+                    &filter,
                 );
                 if events.is_empty() {
                     warn("no event found", &configuration)

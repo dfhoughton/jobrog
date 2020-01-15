@@ -3,7 +3,7 @@ extern crate clap;
 extern crate two_timer;
 
 use crate::configure::Configuration;
-use crate::log::{Event, LogController};
+use crate::log::{Event, Filter, LogController};
 use crate::util::fatal;
 use crate::vacation::VacationController;
 use chrono::{Duration, Local, NaiveDate, NaiveDateTime};
@@ -62,12 +62,14 @@ pub fn run(matches: &ArgMatches) {
                 let mut reader = LogController::new(None).expect("could not read log");
                 let events = reader.events_in_range(&start, &now);
                 let events = Event::gather_by_day(events, &end);
+                let filter = Filter::dummy();
                 let events = VacationController::read(None).add_vacation_times(
                     &start,
                     &end,
                     events,
                     &configuration,
                     None,
+                    &filter,
                 );
                 let mut hours_required = 0.0;
                 let mut seconds_worked = 0.0;

@@ -1653,6 +1653,15 @@ pub struct Filter<'a> {
 }
 
 impl<'a> Filter<'a> {
+    pub fn dummy() -> Filter<'a> {
+        Filter{
+            all_tags: None,
+            no_tags: None,
+            some_tags:None,
+            some_patterns: None,
+            no_patterns: None,
+        }
+    }
     pub fn new(matches: &'a ArgMatches) -> Filter<'a> {
         let all_tags = matches
             .values_of("tag")
