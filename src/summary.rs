@@ -9,9 +9,9 @@ use crate::util::{
     fatal, remainder, warn,
 };
 use crate::vacation::VacationController;
+use chrono::Local;
 use clap::{App, Arg, ArgMatches, SubCommand};
 use two_timer::{parsable, parse};
-use chrono::Local;
 
 pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
     mast.subcommand(common_search_or_filter_arguments(
