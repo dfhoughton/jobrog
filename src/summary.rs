@@ -9,7 +9,7 @@ use crate::util::{
     fatal, remainder, warn,
 };
 use crate::vacation::VacationController;
-use chrono::Local;
+use chrono::{Duration, Local};
 use clap::{App, Arg, ArgMatches, SubCommand};
 use two_timer::{parsable, parse};
 
@@ -73,7 +73,7 @@ pub fn run(matches: &ArgMatches) {
             } else {
                 start
             };
-            let time = Local::now().naive_local();
+            let time = Local::now().naive_local().date().and_hms(0, 0, 0) + Duration::days(1);
             let end = if end > time { time } else { end };
 
             let filter = Filter::new(matches);
