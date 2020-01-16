@@ -107,25 +107,8 @@ impl LogController {
     pub fn find_line(&mut self, time: &NaiveDateTime) -> Option<Item> {
         if let Some(start) = self.get_after(0) {
             let end = self.get_before(self.larry.len() - 1);
-            Some(self.narrow_in(time, start, end))
-        } else {
-            None
-        }
-    }
-    // returns first and last timestamps in log, if any
-    pub fn limiting_timestamps(&mut self) -> Option<(NaiveDateTime, NaiveDateTime)> {
-        let i =
-            (0..self.larry.len()).find(|i| parse_line(self.larry.get(*i).unwrap(), *i).has_time());
-        if let Some(i) = i {
-            let item = parse_line(self.larry.get(i).unwrap(), i);
-            let (start, _) = item.time().unwrap();
-            let i = (0..self.larry.len())
-                .rev()
-                .find(|i| parse_line(self.larry.get(*i).unwrap(), *i).has_time())
-                .unwrap();
-            let item = parse_line(self.larry.get(i).unwrap(), i);
-            let (end, _) = item.time().unwrap();
-            Some((start.clone(), end.clone()))
+            let time = start.advance(time);
+            Some(self.narrow_in(&time, start, end))
         } else {
             None
         }
@@ -1290,6 +1273,26 @@ mod tests {
         };
         assert!(success, "recognized a whitespace line as a blank");
     }
+
+    #[test]
+    fn stack_overflow_regression() {
+        let (items, path) = random_log(23);
+        let events = closed_events(items);
+        assert!(events.len() > 1, "found more than one event");
+        let mut log_reader = LogController::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let e = events.first().unwrap();
+        let false_start = e.start - Duration::days(1);
+        let found_events = log_reader.events_in_range(&false_start, e.end.as_ref().unwrap());
+        assert_eq!(1, found_events.len(), "found one event");
+        assert_eq!(e.start, found_events[0].start, "same start");
+        assert_eq!(e.end, found_events[0].end, "same end");
+        assert_eq!(e.tags, found_events[0].tags, "same tags");
+        assert_eq!(
+            e.description, found_events[0].description,
+            "same description"
+        );
+        std::fs::remove_file(path).unwrap();
+    }
 }
 
 // everything you could find in a stream of lines from a log
@@ -1304,6 +1307,32 @@ pub enum Item {
 }
 
 impl Item {
+    fn advance(&self, time: &NaiveDateTime) -> NaiveDateTime {
+        match self {
+            Item::Event(e, _) => {
+                if time < &e.start {
+                    e.start.clone()
+                } else {
+                    time.clone()
+                }
+            }
+            Item::Note(n, _) => {
+                if time < &n.time {
+                    n.time.clone()
+                } else {
+                    time.clone()
+                }
+            }
+            Item::Done(d, _) => {
+                if time < &d.0 {
+                    d.0.clone()
+                } else {
+                    time.clone()
+                }
+            }
+            _ => time.clone(),
+        }
+    }
     fn time(&self) -> Option<(&NaiveDateTime, usize)> {
         match self {
             Item::Event(e, offset) => Some((&e.start, *offset)),
@@ -1654,10 +1683,10 @@ pub struct Filter<'a> {
 
 impl<'a> Filter<'a> {
     pub fn dummy() -> Filter<'a> {
-        Filter{
+        Filter {
             all_tags: None,
             no_tags: None,
-            some_tags:None,
+            some_tags: None,
             some_patterns: None,
             no_patterns: None,
         }
