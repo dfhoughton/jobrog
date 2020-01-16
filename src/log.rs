@@ -113,6 +113,14 @@ impl LogController {
             None
         }
     }
+    pub fn first_timestamp(&self) -> Option<NaiveDateTime> {
+        let item = ItemsAfter::new(0, &self.path).find(|i| i.has_time());
+        item.and_then(|i| Some(i.time().unwrap().0.clone()))
+    }
+    pub fn last_timestamp(&mut self) -> Option<NaiveDateTime> {
+        let item = ItemsBefore::new(self.larry.len(), self).find(|i| i.has_time());
+        item.and_then(|i| Some(i.time().unwrap().0.clone()))
+    }
     fn narrow_in(&mut self, time: &NaiveDateTime, start: Item, end: Item) -> Item {
         let start = self.advance_to_first(start);
         let (t1, mut o1) = start.time().unwrap();
@@ -284,10 +292,6 @@ impl LogController {
     pub fn last_event(&mut self) -> Option<Event> {
         // because Larry caches the line, re-acquiring the last event is cheap
         self.events_from_the_end().find(|_| true)
-    }
-    fn last_timestamp(&mut self) -> Option<NaiveDateTime> {
-        let item = ItemsBefore::new(self.larry.len(), self).find(|i| i.has_time());
-        item.and_then(|i| Some(i.time().unwrap().0.clone()))
     }
     pub fn forgot_to_end_last_event(&mut self) -> bool {
         if let Some(event) = self.last_event() {

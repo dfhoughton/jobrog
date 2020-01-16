@@ -11,6 +11,7 @@ use crate::util::{
 use crate::vacation::VacationController;
 use clap::{App, Arg, ArgMatches, SubCommand};
 use two_timer::{parsable, parse};
+use chrono::Local;
 
 pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
     mast.subcommand(common_search_or_filter_arguments(
@@ -64,42 +65,60 @@ pub fn run(matches: &ArgMatches) {
     }
     if let Ok((start, end, _)) = parse(&phrase, configuration.two_timer_config()) {
         let mut reader = LogController::new(None).expect("could not read log");
-        let filter = Filter::new(matches);
-        check_for_ongoing_event(&mut reader, &configuration);
-        if matches.is_present("notes") {
-            let note: Vec<Note> = reader
-                .notes_in_range(&start, &end)
-                .into_iter()
-                .filter(|n| filter.matches(n))
-                .collect();
-            if note.is_empty() {
-                warn("no note found", &configuration)
+        if let Some(time) = reader.first_timestamp() {
+            // narrow the range in to just the dates from the beginning of the lot to the present
+            // so that we don't have spurious vacation times
+            let start = if time > start {
+                time.date().and_hms(0, 0, 0)
             } else {
-                display_notes(note, &start, &end, &configuration);
+                start
+            };
+            let time = Local::now().naive_local();
+            let end = if end > time { time } else { end };
+
+            let filter = Filter::new(matches);
+            check_for_ongoing_event(&mut reader, &configuration);
+            if matches.is_present("notes") {
+                let note: Vec<Note> = reader
+                    .notes_in_range(&start, &end)
+                    .into_iter()
+                    .filter(|n| filter.matches(n))
+                    .collect();
+                if note.is_empty() {
+                    warn("no note found", &configuration)
+                } else {
+                    display_notes(note, &start, &end, &configuration);
+                }
+            } else {
+                let events = reader
+                    .events_in_range(&start, &end)
+                    .into_iter()
+                    .filter(|n| filter.matches(n))
+                    .collect();
+                let events = if matches.is_present("no-merge") {
+                    Event::gather_by_day(events, &end)
+                } else {
+                    Event::gather_by_day_and_merge(events, &end)
+                };
+                let events = VacationController::read(None).add_vacation_times(
+                    &start,
+                    &end,
+                    events,
+                    &configuration,
+                    None,
+                    &filter,
+                );
+                if events.is_empty() {
+                    warn("no event found", &configuration)
+                } else {
+                    display_events(events, &start, &end, &configuration);
+                }
             }
         } else {
-            let events = reader
-                .events_in_range(&start, &end)
-                .into_iter()
-                .filter(|n| filter.matches(n))
-                .collect();
-            let events = if matches.is_present("no-merge") {
-                Event::gather_by_day(events, &end)
+            if matches.is_present("notes") {
+                warn("no note found", &configuration)
             } else {
-                Event::gather_by_day_and_merge(events, &end)
-            };
-            let events = VacationController::read(None).add_vacation_times(
-                &start,
-                &end,
-                events,
-                &configuration,
-                None,
-                &filter,
-            );
-            if events.is_empty() {
                 warn("no event found", &configuration)
-            } else {
-                display_events(events, &start, &end, &configuration);
             }
         }
     } else {
