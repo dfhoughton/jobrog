@@ -45,7 +45,8 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                     .long_help("A time expression. E.g., 'last week' or '2016-10-2'.")
                     .value_name("word")
                     .multiple(true),
-            ),
+            )
+            .display_order(11),
     )
 }
 

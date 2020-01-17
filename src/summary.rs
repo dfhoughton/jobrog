@@ -29,7 +29,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                     .default_value("today")
                     .multiple(true)
             )
-            .display_order(3),
+            .display_order(2),
             None,
     ).arg(
         Arg::with_name("date")

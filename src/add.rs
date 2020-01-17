@@ -44,7 +44,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                     .required(true)
                     .multiple(true)
             )
-            .display_order(1)
+            .display_order(0)
     )
 }
 

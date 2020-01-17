@@ -11,7 +11,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
         SubCommand::with_name("resume")
             .aliases(&["r", "re", "res", "resu", "resum"])
             .about("resume the last stopped task")
-            .display_order(4),
+            .display_order(5),
         Some(true),
     ))
 }

@@ -44,7 +44,7 @@ retained in the hidden directory.")
                     .required(true)
                     .multiple(true)
             )
-            .display_order(13)
+            .display_order(12)
     )
 }
 

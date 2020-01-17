@@ -201,7 +201,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                 .help("list all configuration parameters")
                 .long_help("List all configuration parameters and their values.")
             )
-            .display_order(12)
+            .display_order(8)
     )
 }
 

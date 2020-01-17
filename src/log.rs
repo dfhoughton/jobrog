@@ -384,13 +384,13 @@ impl<'a> Iterator for ItemsBefore<'a> {
     }
 }
 
-struct ItemsAfter {
+pub struct ItemsAfter {
     offset: usize,
     bufreader: Lines<BufReader<File>>,
 }
 
 impl ItemsAfter {
-    fn new(offset: usize, path: &str) -> ItemsAfter {
+    pub fn new(offset: usize, path: &str) -> ItemsAfter {
         let mut bufreader =
             BufReader::new(File::open(path).expect("could not open log file")).lines();
         for _ in 0..offset {
@@ -1337,7 +1337,7 @@ impl Item {
             _ => time.clone(),
         }
     }
-    fn time(&self) -> Option<(&NaiveDateTime, usize)> {
+    pub fn time(&self) -> Option<(&NaiveDateTime, usize)> {
         match self {
             Item::Event(e, offset) => Some((&e.start, *offset)),
             Item::Note(n, offset) => Some((&n.time, *offset)),

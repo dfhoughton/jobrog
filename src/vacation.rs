@@ -166,7 +166,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                     .value_name("description")
                     .multiple(true)
             )
-            .display_order(1)
+            .display_order(13)
     )
 }
 

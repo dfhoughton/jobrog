@@ -15,7 +15,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                 .aliases(&["f", "fi", "fir", "firs"])
                 .about("show the first task recorded")
                 .after_help("Should you want to find the first task of a particular sort in the log, this is a bit easier than scanning the log visually.")
-                .display_order(14),
+                .display_order(9),
                 None
         )
     )
