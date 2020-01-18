@@ -6,7 +6,7 @@ use crate::configure::Configuration;
 use crate::log::{Item, ItemsAfter};
 use crate::util::log_path;
 use chrono::NaiveDateTime;
-use clap::{App, SubCommand};
+use clap::{App, Arg, ArgMatches, SubCommand};
 use colonnade::{Alignment, Colonnade};
 use std::collections::BTreeSet;
 
@@ -24,12 +24,19 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                 "statisti",
                 "statistic",
             ])
-            .about("Show overall statistics of the log.")
+            .arg(
+                Arg::with_name("raw-numbers")
+                    .long("raw-numbers")
+                    .help("don't use comma group separators")
+                    .display_order(1),
+            )
+            .about("Shows overall statistics of the log")
             .display_order(14),
     )
 }
 
-pub fn run() {
+pub fn run(matches: &ArgMatches) {
+    let no_commas = matches.is_present("raw-numbers");
     let conf = Configuration::read(None);
     let mut colonnade =
         Colonnade::new(2, conf.width()).expect("could not build the statistics table");
@@ -73,7 +80,7 @@ pub fn run() {
         }
     }
     let data = [
-        [String::from("lines"), format_num(line_count)],
+        [String::from("lines"), format_num(line_count, no_commas)],
         [
             String::from("first timestamp"),
             if let Some(t) = first_timestamp {
@@ -90,29 +97,38 @@ pub fn run() {
                 String::from("")
             },
         ],
-        [String::from("events"), format_num(event_count)],
-        [String::from("notes"), format_num(note_count)],
+        [String::from("events"), format_num(event_count, no_commas)],
+        [String::from("notes"), format_num(note_count, no_commas)],
         [
             String::from("distinct event tags"),
-            format_num(event_tags.len()),
+            format_num(event_tags.len(), no_commas),
         ],
         [
             String::from("distinct note tags"),
-            format_num(note_tags.len()),
+            format_num(note_tags.len(), no_commas),
         ],
-        [String::from("comments"), format_num(comment_count)],
-        [String::from("blank lines"), format_num(blank_line_count)],
-        [String::from("errors"), format_num(error_count)],
+        [
+            String::from("comments"),
+            format_num(comment_count, no_commas),
+        ],
+        [
+            String::from("blank lines"),
+            format_num(blank_line_count, no_commas),
+        ],
+        [String::from("errors"), format_num(error_count, no_commas)],
     ];
     for line in colonnade.tabulate(&data).expect("couild not tabulate data") {
         println!("{}", line);
     }
 }
 
-fn format_num(n: usize) -> String {
+fn format_num(n: usize, no_commas: bool) -> String {
+    let s1 = n.to_string();
+    if no_commas {
+        return s1;
+    }
     let mut count = 0;
     let mut s = String::new();
-    let s1 = n.to_string();
     for c in s1.chars().rev() {
         s.push(c);
         count += 1;

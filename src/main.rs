@@ -44,7 +44,7 @@ fn main() {
         ("truncate", Some(m)) => truncate::run(m),
         ("configure", Some(m)) => configure::run(m),
         ("vacation", Some(m)) => vacation::run(m),
-        ("statistics", Some(_)) => statistics::run(),
+        ("statistics", Some(m)) => statistics::run(m),
         ("parse-time", Some(m)) => parse::run(m),
         _ => println!("{}", matches.usage()),
     }
