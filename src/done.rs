@@ -7,12 +7,24 @@ use crate::util::{check_for_ongoing_event, describe, display_events, warn};
 use chrono::Local;
 use clap::{App, SubCommand};
 
+fn after_help() -> &'static str {
+    "The done subcommand places a DONE timestamp in the job log. This is just a \
+    timestamp followed by a colon and the word 'DONE':
+
+  2019  1  2 15 04 05:DONE
+
+Generally one ends one task by beginning another, but you want to go off the clock \
+you can use the done subcommand.
+
+All prefixes of 'done' -- 'd', 'do', and 'don' -- are aliases."
+}
+
 pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
     mast.subcommand(
         SubCommand::with_name("done")
             .aliases(&["d", "do", "don"])
-            .about("end the current open task")
-            .after_help("Place a DONE timestamp in the job log. E.g.,\n\n  2019  1  2 15 04 05:DONE\n\nIf the last log line is a DONE timestamp, there is no task ongoing.")
+            .about("Ends a currently open task")
+            .after_help(after_help())
             .display_order(display_order)
     )
 }

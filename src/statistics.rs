@@ -10,9 +10,31 @@ use clap::{App, Arg, ArgMatches, SubCommand};
 use colonnade::{Alignment, Colonnade};
 use std::collections::BTreeSet;
 
+fn after_help() -> &'static str {
+    "\
+If you want aggregate statistics about your job log, this is your subcommand.
+
+  > job statistics
+  lines                            18,731
+  first timestamp     2014-10-06 08:57:29
+  last timestamp      2020-01-17 17:03:46
+  events                           14,419
+  notes                               202
+  distinct event tags               2,326
+  distinct note tags                   17
+  comments                          1,323
+  blank lines                           2
+  errors                                0
+
+All prefixes of 'statistics' after 's' -- 'st', 'sta', 'stat', etc. -- are aliases of \
+this subcommand, as is 'stats'. The 's' prefix is reserved for the summary subcommand.
+"
+}
+
 pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
     mast.subcommand(
         SubCommand::with_name("statistics")
+            .after_help(after_help())
             .aliases(&[
                 "st",
                 "sta",
@@ -27,7 +49,7 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
             .arg(
                 Arg::with_name("raw-numbers")
                     .long("raw-numbers")
-                    .help("don't use comma group separators")
+                    .help("Shows counts without the comma group separator")
                     .display_order(1),
             )
             .about("Shows overall statistics of the log")

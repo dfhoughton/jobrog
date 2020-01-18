@@ -2,22 +2,37 @@ extern crate clap;
 
 use crate::configure::Configuration;
 use crate::log::{Item, LogController};
-use crate::util::{check_for_ongoing_event, describe, some_nws};
+use crate::util::{check_for_ongoing_event, describe, remainder, some_nws};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+
+fn after_help() -> &'static str {
+    "You can record notes in your job log as well as events. But they are \
+reported by the summary subcommand with only one timestamp, not two, and they \
+aren't reported at all unless you specifically ask for them. E.g.,
+
+  > job note -t paula -t birthday install Job Log
+
+A note line in the log is identical to an event line, except '<NOTE>' is used as the separator \
+between the timestamp and the tags:
+
+  2020  1 18 12 10 26<NOTE>birthday paula:install Job Log
+
+All prefixes of 'note' are aliases of the subcommand."
+}
 
 pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
     mast.subcommand(
         SubCommand::with_name("note")
             .aliases(&["n", "no", "not"])
-            .about("add a new note")
-            .after_help("This is the essential job command: adding an event to the log. Like event lines, a note line in the log consists of a timestamp, with units in descending order of significance, an optional set of tags, and some text. Unlike an event line, for a note the separator between the first and second part is the string '<NOTE>' rather than a colon. A colon separates the second and third parts. E.g.,\n\n  2019  7  6 18  1 30<NOTE>birthday paula:Paula said the main thing she wants is a hibachi\n\nUnlike events, notes have no duration. Notes are ignored when summarizing the log unless you explicitly ask for a summary of notes instead of events.")
+            .about("Adds a new note")
+            .after_help(after_help())
             .arg(
                 Arg::with_name("tag")
                 .short("t")
                 .long("tag")
                 .multiple(true)
                 .number_of_values(1)
-                .help("add this tag to the note")
+                .help("Adds this tag to the note")
                 .long_help("A tag is just a short description, like 'fun', or 'Louis'. Add a tag to a note to facilitate finding or grouping similar notes.")
                 .value_name("tag")
                 .validator(|v| if some_nws(&v) {Ok(())} else {Err(format!("tag {:?} needs some non-whitespace character", v))})
@@ -28,7 +43,7 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
                 .short("c")
                 .long("copy-tags")
                 .visible_alias("ct")
-                .help("copy tags from preceding note")
+                .help("Copies tags from preceding note")
                 .long_help("Copy to this note all the tags of the immediately preceding note. These tags will be in addition to any tags added via --tag.")
                 .display_order(2)
             )
@@ -51,11 +66,7 @@ pub fn run(matches: &ArgMatches) {
     let mut reader = LogController::new(None).expect("could not read log");
     let conf = Configuration::read(None);
     check_for_ongoing_event(&mut reader, &conf);
-    let description = matches
-        .values_of("note")
-        .unwrap()
-        .collect::<Vec<&str>>()
-        .join(" ");
+    let description = remainder("note", matches);
     let mut tags: Vec<String> = if let Some(values) = matches.values_of("tag") {
         values.map(|s| s.to_owned()).collect()
     } else {

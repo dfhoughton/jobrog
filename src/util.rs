@@ -7,7 +7,7 @@ extern crate regex;
 
 use crate::configure::Configuration;
 use crate::log::{Event, Item, LogController, Note};
-use ansi_term::Colour::{Blue, Cyan, Green, Purple, Red};
+use ansi_term::Colour::{Black, Blue, Cyan, Green, Purple, Red};
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime, Timelike};
 use clap::{App, Arg, ArgMatches};
 use colonnade::{Alignment, Colonnade};
@@ -29,8 +29,8 @@ pub fn common_search_or_filter_arguments(
             Arg::with_name("notes")
             .short("n")
             .long("notes")
-            .help("consider notes, not events")
-            .long_help("Consider only notes, not events. If this is false, only events are considered, not notes.")
+            .help("Considers notes, not events")
+            .long_help("Considers only notes, not events. If this is false, only events are considered, not notes.")
             .display_order(1)
             )
     } else {
@@ -44,14 +44,14 @@ pub fn common_search_or_filter_arguments(
         .multiple(true)
         .number_of_values(1)
         .help(match for_events {
-            Some(true) => "skip events that lack this tag",
-            Some(false) => "skip notes that lack this tag",
-            None => "skip events/notes that lack this tag"
+            Some(true) => "Skips events that lack this tag",
+            Some(false) => "Skips notes that lack this tag",
+            None => "Skips events/notes that lack this tag"
         })
         .long_help(match for_events {
-            Some(true) => "Skip events that lack this tag.",
-            Some(false) => "Skip notes that lack this tag.",
-            None => "Skip events/notes that lack this tag."
+            Some(true) => "Skips events that lack this tag.",
+            Some(false) => "Skips notes that lack this tag.",
+            None => "Skips events/notes that lack this tag."
         })
         .value_name("tag")
         .display_order(1)
@@ -65,14 +65,14 @@ pub fn common_search_or_filter_arguments(
         .multiple(true)
         .number_of_values(1)
         .help(match for_events {
-            Some(true) => "skip events that have this tag",
-            Some(false) => "skip notes that have this tag",
-            None => "skip events/notes that have this tag"
+            Some(true) => "Skips events that have this tag",
+            Some(false) => "Skips notes that have this tag",
+            None => "Skips events/notes that have this tag"
         })
         .long_help(match for_events {
-            Some(true) => "Skip events that have this tag.",
-            Some(false) => "Skip notes that have this tag.",
-            None => "Skip events/notes that have this tag."
+            Some(true) => "Skips events that have this tag.",
+            Some(false) => "Skips notes that have this tag.",
+            None => "Skips events/notes that have this tag."
         })
         .value_name("tag")
         .display_order(2)
@@ -86,14 +86,14 @@ pub fn common_search_or_filter_arguments(
         .multiple(true)
         .number_of_values(1)
         .help(match for_events {
-            Some(true) => "skip events that lack any of these tags",
-            Some(false) => "skip notes that lack any of these tags",
-            None => "skip events/notes that lack any of these tags"
+            Some(true) => "Skips events that lack any of these tags",
+            Some(false) => "Skips notes that lack any of these tags",
+            None => "Skips events/notes that lack any of these tags"
         })
         .long_help(match for_events {
-            Some(true) => "Skip events that lack any of these tags. This is identical to --tag if only one value is provided. It is useful when you are looking for the last event that is tagged with some subset of a particular set of tags.",
-            Some(false) => "Skip notes that lack any of these tags. This is identical to --tag if only one value is provided. It is useful when you are looking for the last note that is tagged with some subset of a particular set of tags.",
-            None => "Skip events or notes that lack any of these tags. This is identical to --tag if only one value is provided. It is useful when you are looking for the last event/note that is tagged with some subset of a particular set of tags."
+            Some(true) => "Skips events that lack any of these tags. This is identical to --tag if only one value is provided. It is useful when you are looking for the last event that is tagged with some subset of a particular set of tags.",
+            Some(false) => "Skips notes that lack any of these tags. This is identical to --tag if only one value is provided. It is useful when you are looking for the last note that is tagged with some subset of a particular set of tags.",
+            None => "Skips events or notes that lack any of these tags. This is identical to --tag if only one value is provided. It is useful when you are looking for the last event/note that is tagged with some subset of a particular set of tags."
         })
         .value_name("tag")
         .display_order(3)
@@ -104,14 +104,14 @@ pub fn common_search_or_filter_arguments(
         .multiple(true)
         .number_of_values(1)
         .help(match for_events {
-            Some(true) => "find events whose description matches this pattern",
-            Some(false) => "find notes whose text matches this pattern",
-            None => "find events/notes whose description/text matches this pattern"
+            Some(true) => "Finds events whose description matches this pattern",
+            Some(false) => "Finds notes whose text matches this pattern",
+            None => "Finds events/notes whose description/text matches this pattern"
         })
         .long_help(match for_events {
-            Some(true) => "Find events whose description matches this regular expression.",
-            Some(false) => "Find notes whose text matches this regular expression.",
-            None => "Find events or notes whose description or text matches this regular expression."
+            Some(true) => "Finds events whose descriptions match this regular expression.",
+            Some(false) => "Finds notes whose text matches this regular expression.",
+            None => "Finds events or notes whose descriptions or text match this regular expression."
         })
         .value_name("pattern")
         .validator(|arg| if Regex::new(&arg).is_ok() {Ok(())} else {Err(format!("'{}' cannot be parsed as a regular expression", &arg))})
@@ -123,14 +123,14 @@ pub fn common_search_or_filter_arguments(
         .multiple(true)
         .number_of_values(1)
         .help(match for_events {
-            Some(true) => "skip events whose description matches this pattern",
-            Some(false) => "skip notes whose text matches this pattern",
-            None => "skip events/notes whose description/text matches this pattern"
+            Some(true) => "Skips events whose descriptions match this pattern",
+            Some(false) => "Skips notes whose text matches this pattern",
+            None => "Skips events/notes whose descriptions/text match this pattern"
         })
         .long_help(match for_events {
-            Some(true) => "Find events whose description does not match this regular expression.",
-            Some(false) => "Find notes whose text does not match this regular expression.",
-            None => "Find events or notes whose description or text does not match this regular expression."
+            Some(true) => "Finds events whose descriptions do not match this regular expression.",
+            Some(false) => "Finds notes whose text does not match this regular expression.",
+            None => "Finds events or notes whose descriptions or text do not match this regular expression."
         })
         .value_name("pattern")
         .validator(|arg| if Regex::new(&arg).is_ok() {Ok(())} else {Err(format!("'{}' cannot be parsed as a regular expression", &arg))})
@@ -489,6 +489,19 @@ impl<'a> Style<'a> {
         format!(
             "{}",
             ansi_term::Style::new().italic().paint(text.to_string())
+        )
+    }
+    // the odd line in a striped table
+    pub fn odd_line<T: ToString>(&self, text: T) -> String {
+        if self.noop {
+            return text.to_string();
+        }
+        format!(
+            "{}",
+            ansi_term::Style::new()
+                .on(Cyan)
+                .fg(Black)
+                .paint(text.to_string())
         )
     }
     pub fn cyan<T: ToString>(&self, text: T) -> String {

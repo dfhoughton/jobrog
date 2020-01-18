@@ -1,4 +1,3 @@
-extern crate ansi_term;
 extern crate chrono;
 extern crate clap;
 extern crate colonnade;
@@ -7,9 +6,7 @@ extern crate regex;
 extern crate term_size;
 extern crate two_timer;
 
-use crate::util::{base_dir, warn};
-use ansi_term::Colour::{Black, Cyan};
-use ansi_term::Style;
+use crate::util::{base_dir, warn, Style};
 use chrono::{Datelike, NaiveDate};
 use clap::{App, Arg, ArgMatches, SubCommand};
 use colonnade::{Alignment, Colonnade};
@@ -26,6 +23,46 @@ pub const DAY_LENGTH: &str = "8";
 pub const BEGINNING_WORK_DAY: (usize, usize) = (9, 0);
 pub const WORKDAYS: &str = "MTWHF";
 pub const COLOR: &str = "true";
+
+fn after_help() -> &'static str {
+    "Set or display configuration parameters that control date interpretation, log summarization, etc.
+
+  > job configure --list
+  precision                quarter
+  max-width
+  length-pay-period              7
+  start-pay-period       2016 10 3
+  sunday-begins-week          true
+  workdays                   MTWHF
+  beginning-work-day          9:00
+  day-length                     8
+  editor              /usr/bin/vim
+  color                       true
+  > job configure --precision 2
+  setting precision to 2!
+  > job configure --list
+  precision                      2
+  max-width
+  length-pay-period              7
+  start-pay-period       2016 10 3
+  sunday-begins-week          true
+  workdays                   MTWHF
+  beginning-work-day          9:00
+  day-length                     8
+  editor              /usr/bin/vim
+  color                       true
+  > job configure --precision quarter
+  setting precision to quarter!
+
+Some configuration may be taken from environment variables -- VISUAL, EDITOR, NO_COLOR. \
+If this is occurring, this will be explained when you list the configuration.
+
+Currently color is either on or off. In some future release the color of colorized elements \
+will be configurable.
+
+All prefixes of 'configure' are aliases of the subcommand.
+"
+}
 
 fn valid_length_pay_period(v: String) -> Result<(), String> {
     let n = v.parse::<u32>();
@@ -109,12 +146,12 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
         SubCommand::with_name("configure")
             .aliases(&["c", "co", "con", "conf", "confi", "config", "configu", "configur"])
             .about("set or display configuration parameters")
-            .after_help("Set or display configuration parameters that control date interpretation, log summarization, etc.")
+            .after_help(after_help())
             // NOTE I'm not using default_value here so we can identify when the user misuses the subcommand and should be prompted
             .arg(
                 Arg::with_name("precision")
                 .long("precision")
-                .help("decimal places of precision in display of time; default value: 2")
+                .help("Sets decimal places of precision in display of time; default value: 2")
                 .long_help("The number of decimal places of precision used in the display of lengths of periods in numbers of hours. If the number is 0, probably not what you want, all periods will be rounded to a whole number of hours. The default value is 2. If the precision is 'quarter' times will be rounded to the quarter hour for display.")
                 .possible_values(&["0", "1", "2", "3", "quarter"])
                 .value_name("int")
@@ -122,7 +159,7 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
             .arg(
                 Arg::with_name("start-pay-period")
                 .long("start-pay-period")
-                .help("the first day of some pay period")
+                .help("Sets the first day of some pay period")
                 .long_help("A day relative to which all pay periods will be calculated. See --length-pay-period.")
                 .validator(|v| if parsable(&v) {Ok(())} else {Err(format!("cannot parse '{}' as a time expression", v))} )
                 .value_name("date")
@@ -130,35 +167,35 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
             .arg(
                 Arg::with_name("sunday-begins-week")
                 .long("sunday-begins-week")
-                .help("whether Sunday should be considered the first day of the week; default value; true")
+                .help("Sets whether Sunday should be considered the first day of the week; default value; true")
                 .possible_values(&["true", "false"])
                 .value_name("bool")
             )
             .arg(
                 Arg::with_name("length-pay-period")
                 .long("length-pay-period")
-                .help("the number of days in a pay period; default value: 14")
+                .help("Sets the number of days in a pay period; default value: 14")
                 .validator(valid_length_pay_period)
                 .value_name("int")
             )
             .arg(
                 Arg::with_name("day-length")
                 .long("day-length")
-                .help("expected number of hours in a workday; default value: 8")
+                .help("Sets expected number of hours in a workday; default value: 8")
                 .validator(valid_day_length)
                 .value_name("num")
             )
             .arg(
                 Arg::with_name("beginning-work-day")
                 .long("beginning-work-day")
-                .help("when a work day typically begins; default value: 9:00")
+                .help("Sets when a work day typically begins; default value: 9:00")
                 .validator(valid_beginning_work_day)
                 .value_name("hours[:minutes]")
             )
             .arg(
                 Arg::with_name("workdays")
                 .long("workdays")
-                .help("which days you are expected to work; default value: MTWHF")
+                .help("Sets which days you are expected to work; default value: MTWHF")
                 .long_help("Workdays during the week represented as a subset of SMTWHFA, where S is Sunday and A is Saturday, etc. Default value: MTWHF.")
                 .validator(|v| if Regex::new(r"\A[SMTWHFA]+\z").unwrap().is_match(&v) {Ok(())} else {Err(format!("must contain only the letters SMTWHFA, where S means Sunday and A, Saturday, etc."))})
                 .value_name("days")
@@ -166,21 +203,21 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
             .arg(
                 Arg::with_name("editor")
                 .long("editor")
-                .help("text editor to use when manually editing the log")
+                .help("Sets text editor to use when manually editing the log")
                 .long_help("A text editor that the edit command will invoke. E.g., /usr/bin/vim. If no editor is set, job falls back to the environment variables VISUAL and EDITOR in that order. If there is still no editor, you cannot use the edit command to edit the log. Note, whatever editor you use must be invocable from the shell as <editor> <file>.")
                 .value_name("path")
             )
             .arg(
                 Arg::with_name("max-width")
                 .long("max-width")
-                .help("maximum number of columns when summarizing data")
+                .help("Sets maximum number of columns when summarizing data")
                 .validator(valid_max_width)
                 .value_name("num")
             )
             .arg(
                 Arg::with_name("color")
                 .long("color")
-                .help("whether to use colors; default value: true")
+                .help("Sets whether to use colors; default value: true")
                 .long_help("Color variation helps one parse information quickly, but if you don't want it, or the ANSI color codes that produce it cause you trouble, you can turn it off. If you haven't set this parameter and you don't have the NO_COLOR environment variable, Job Log will use color.")
                 .possible_values(&["true", "false"])
                 .value_name("bool")
@@ -189,7 +226,7 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
                 Arg::with_name("unset")
                 .short("u")
                 .long("unset")
-                .help("return a configuration to its default")
+                .help("Returns a configurable parameter to its default")
                 .value_name("param")
                 .multiple(true)
                 .number_of_values(1)
@@ -198,7 +235,7 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
                 Arg::with_name("list")
                 .short("l")
                 .long("list")
-                .help("list all configuration parameters")
+                .help("Lists all configuration parameters")
                 .long_help("List all configuration parameters and their values.")
             )
             .display_order(display_order)
@@ -479,10 +516,10 @@ pub fn run(matches: &ArgMatches) {
         ];
         let mut table = Colonnade::new(2, conf.width()).unwrap();
         table.columns[1].alignment(Alignment::Right).left_margin(2);
-        let odd_line = Style::new().on(Cyan).fg(Black); // FIXME use color object
+        let style = Style::new(&conf);
         for (i, line) in table.tabulate(&attributes).unwrap().iter().enumerate() {
             if i % 2 == 1 {
-                println!("{}", odd_line.paint(line))
+                println!("{}", style.odd_line(line))
             } else {
                 println!("{}", line);
             }

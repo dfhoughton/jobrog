@@ -12,18 +12,30 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
 
+fn after_help() -> &'static str {
+    "Sometimes you will fail to log a change of tasks, fail to log out at the end \
+of the day, or find you spent more time than is allowed at lunch. In these cases you \
+need to edit the log manually. The edit subcommand will open a text editor for you and \
+validate the changes once you save and close the editor. If it finds any errors, it will \
+comment them out, provide a preceding explanation of the error, and notify you of the number \
+of errors it found and the line number of the first error. It also creates a backup of the log \
+file before it opens the editor, so if need be you can destroy the botched log file and restore \
+the backup. You will have to do this manually. If it finds no errors it will destroy the backup \
+and restore any pre-existing backup it may have found."
+}
+
 pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
     mast.subcommand(
         SubCommand::with_name("edit")
             .aliases(&["e", "ed", "edi"])
-            .about("open the job log in a text editor")
-            .after_help("Sometimes you will")
+            .about("Opens the job log in a text editor")
+            .after_help(after_help())
             .display_order(display_order)
             .arg(
                 Arg::with_name("validate")
                 .long("validate")
-                .help("validate the entire log, commenting out invalid lines")
-                .long_help("If you have reason to believe your log has invalid lines -- if, for instance, you edited it without using this subcommand -- you can validate and clean it using --validate. This will convert invalid lines to comments preceded by comments marking them and explaining how they are invalid. It will announce upon completion whether it has found any invalid lines.")
+                .help("Validates the entire log, commenting out invalid lines")
+                .long_help("If you have reason to believe your log has invalid lines -- if, for instance, you edited it without using this subcommand -- you can validate and clean it using --validate.")
             )
     )
 }

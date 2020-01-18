@@ -10,12 +10,28 @@ use chrono::{Duration, Local, NaiveDate, NaiveDateTime};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use two_timer::parse;
 
+fn after_help() -> &'static str {
+    "If you are expected to log a certain number of hours a day this command allows you \
+to discover how many addional hours you will have to work to meet this expectation.
+
+Without any additional arguments the assumed period is the current day. Perhaps more useful \
+is the pay period, but to use 'pay period' (abbreviated 'pp') as your time expression, \
+you must have configured a pay period for the job log. See the configure subcommand.
+
+  > job when
+  when: today
+  you were done at  4:16:52 PM
+
+All prefixes of 'when' are aliases of the subcommand.
+"
+}
+
 pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
     mast.subcommand(
         SubCommand::with_name("when")
             .aliases(&["w", "wh", "whe"])
-            .about("says when you will have worked all the hours expected within the given period")
-            .after_help("You are expected to log a certain number of hours a day. This command allows you to discover how many addional hours you will have to work to meet this expectation.\n\nWithout any additional arguments the assumed period is the current day. Perhaps more useful is the pay period, but to use 'pay period' (abbreviated 'pp') as your time expression, you must have configured a pay period for the job log.")
+            .about("Says when you will have worked all the hours expected within the given period")
+            .after_help(after_help())
             .setting(AppSettings::TrailingVarArg)
             .arg(
                 Arg::with_name("period")

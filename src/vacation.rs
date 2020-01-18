@@ -19,6 +19,49 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 use two_timer::{parsable, parse};
 
+fn after_help() -> &'static str {
+    "\
+Vacation time is the dark matter of the log. It is not stored in the log and it can be simultaneous with \
+logged events inasmuch as it occurs on particular days when logged events also occur, but it generally doesn't \
+have specific start and end times.
+
+  > job vacation --list
+
+      description                 tags  start                end         type   repetition  started  ended
+   1  New Year's                        2015-01-01
+   2  New Year's Day                    2016-01-01                              annual
+   3  Memorial Day                      2015-05-25
+   4  Labor Day                         2015-09-07
+   5  took day off to go on date        2015-10-23
+   6  4 hours Christmas Eve             2015-12-24 12:00 AM  12:00 AM    fixed
+   7  Christmas                         2015-12-25                              annual
+   8  4 hours New Year's Eve            2015-12-31 12:00 AM  12:00 AM    fixed
+   9  field trip with Moe               2016-05-31
+  10  July 4th                          2016-07-04                              annual
+
+Vacation times can be fixed -- with definite start and end times -- flex -- having a flexible extent that just \
+fills up unused workday hours in a particular day, or neither. The latter category is the default. The extent \
+of a vacation period on an ordinary vacation day is just as many hours as you would have been expected to work \
+had it been a regular workday.
+
+In addition to these distinctions a particular vacation may repeat annually or monthly. Repeated vacations are marked \
+as in force as of a particular data and, optionally, defunct as of another date. This way you can turn them on and \
+off and see correct log summaries of earlier periods.
+
+Because the vacation format is so complex it should not be edited by hand but only through the vacation subcommand. \
+Generally this just means adding and subtracting vacation days. For the latter you will be presented with an \
+enumerated list of known vacations. You delete them by their number in the list.
+
+If two vacation periods overlap repeating periods will be preferred to non-repeating, narrower periods to wider, and \
+ordinary over fixed over flex. In any case, a particular vacation moment will only be counted once.
+
+Note, the Rust version of JobLog is adding some features to vacations: on and off times for repeating vacations. \
+Because of this you will not be able to use the vacation file with the Perl client after you add repeating vacations.
+
+All prefixes of 'vacation' are aliases of the subcommand.
+"
+}
+
 // used in three places, so it's factored out
 fn over_as_of_rx() -> Regex {
     Regex::new(r"\A(\d+)(?:\s+(\S.*?)\s*)?\z").unwrap()
@@ -54,12 +97,12 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
         SubCommand::with_name("vacation")
             .aliases(&["v", "va", "vac", "vaca", "vacat", "vacati", "vacatio"])
             .about("record vacation time")
-            .after_help(after_help_text())
+            .after_help(after_help())
             .arg(
                 Arg::with_name("add")
                 .short("a")
                 .long("add")
-                .help("add a vacation record (default action)")
+                .help("Adds a vacation record (default action)")
                 .conflicts_with_all(&["delete", "over-as-of", "list", "clear"])
                 .display_order(0)
             )
@@ -67,7 +110,7 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
                 Arg::with_name("list")
                 .short("l")
                 .long("list")
-                .help("list known vacation periods")
+                .help("Lists known vacation periods")
                 .long_help("Just provide an enumerated list of the known vacation periods and do nothing further. This is a useful, probably necessary, precursor to deleting a vacation period.")
                 .conflicts_with_all(&["delete", "over-as-of", "tag", "add", "clear"])
                 .display_order(1)
@@ -76,7 +119,7 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
                 Arg::with_name("when")
                 .short("w")
                 .long("when")
-                .help("vacation period")
+                .help("Sets vacation period")
                 .long_help("The time period of the vacation. Unless the vacation is of the fixed type, only the dates of the time expression will be considered. 'Today at 2 pm' will have the same effect as 'today' or 'now'.")
                 .value_name("period")
                 .validator(|v| if parsable(&v) {Ok(())} else {Err(format!("cannot parse '{}' as a time expression", v))} )
@@ -89,7 +132,7 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
                 .long("tag")
                 .multiple(true)
                 .number_of_values(1)
-                .help("add this tag to the event")
+                .help("Adds this tag to the event")
                 .long_help("A tag is just a short description, like 'religious', or 'family'. Add a tag to a vacation to facilitate filtering during log summaries.")
                 .value_name("tag")
                 .validator(|v| if some_nws(&v) {Ok(())} else {Err(format!("tag {:?} needs some non-whitespace character", v))})
@@ -99,7 +142,7 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
             .arg(
                 Arg::with_name("type")
                 .long("type")
-                .help("mark the vacation as flex or fixed")
+                .help("Marks the vacation as flex or fixed")
                 .long_help("Flex and fixed vacations cannot repeat. They constrain the vacation period to some subportion of a normal workday. See the full --help text for more details.")
                 .value_name("type")
                 .possible_values(&["ordinary", "fixed", "flex"])
@@ -109,7 +152,7 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
             .arg(
                 Arg::with_name("repeats")
                 .long("repeats")
-                .help("mark the vacation as repeating either annually or monthly")
+                .help("Marks the vacation as repeating either annually or monthly")
                 .long_help("If you have a vacation that repeats at intervals you may mark it as such. It will be assumed that the repetition can be inferred from either the day of the month (monthly), or the day of the month and the month of the year (annual). Repeating vacations cannot be marked as fixed or flex.")
                 .value_name("period")
                 .possible_values(&["annual", "monthly", "never"])
@@ -119,7 +162,7 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
             .arg(
                 Arg::with_name("over-as-of")
                 .long("over-as-of")
-                .help("indicate the end of a repeating vacation")
+                .help("Indicates the end of a repeating vacation")
                 .long_help("If you come to lose a vacation that repeated at intervals -- if you change jobs, for example, and lose a holiday -- this allows you to indicate when the repetition stops. You must identify the affected vacation by its number in the enumerated list (see --list). The date is 'today' by default.")
                 .value_name("number [date]")
                 .validator(number_date_validator)
@@ -129,7 +172,7 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
             .arg(
                 Arg::with_name("effective-as-of")
                 .long("effective-as-of")
-                .help("indicate when a repeating vacation begins repeating")
+                .help("Indicates when a repeating vacation begins repeating")
                 .long_help("If you gain a vacation that repeats at intervals -- if you change jobs, for example, and gain a holiday -- this allows you to indicate when the repetition begins. You must identify the affected vacation by its number in the enumerated list (see --list). The date is 'today' by default. If you add a new repeating vacation, it will by default become effective immediately. This option is chiefly useful when adding a repeating vacation retroactively.")
                 .value_name("number [date]")
                 .validator(number_date_validator)
@@ -140,7 +183,7 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
                 Arg::with_name("delete")
                 .long("delete")
                 .short("d")
-                .help("delete a particular vacation record")
+                .help("Deletes a particular vacation record")
                 .long_help("If you wish to delete a single vacation record altogether, use --delete. You must identify the affected vacation by its number in the enumerated list (see --list).")
                 .value_name("number")
                 .validator(|v| if v.parse::<usize>().is_ok() { Ok(())} else {Err(format!("could not parse {} as a vacation record index", v))})
@@ -152,7 +195,7 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
             .arg(
                 Arg::with_name("clear")
                 .long("clear")
-                .help("delete all vacation records")
+                .help("Deletes all vacation records")
                 .conflicts_with_all(&["over-as-of", "list", "add", "tag", "delete"])
                 .display_order(9)
             )
@@ -168,32 +211,6 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
             )
             .display_order(display_order)
     )
-}
-
-fn after_help_text() -> &'static str {
-    "Vactation time is the dark matter of the log. It is not stored in the log and it can be simultaneous with
-logged events inasmuch as it occurs on particular days when logged events also occur, but it generally doesn't
-have specific start and end times.
-
-Vacation times can be fixed -- with definite start and end times --, flex -- having a flexible extent that just
-fills up unused workday hours in a particular day, or neither. The latter category is the default. The extent
-of a vacation period on an ordinary vacation day is just as many hours as you would have been expected to work
-had it been a regular workday.
-
-In addition to these distinctions, a particular vacation may repeat annually or monthly. Repeated vacations are marked
-as in force as of a particular data and, optionally, defunct as of another date. This way you can turn them on and
-off and see correct log summaries of earlier periods.
-
-Because the vacation format is so complex it should not be edited by hand but only through the vacation subcommand.
-Generally this just means adding and subtracting vacation days. For the latter you will be presented with an
-enumerated list of known vacations. You delete them by their number in the list.
-
-If two vacation periods overlap repeating periods will be preferred to non-repeating, narrower periods to wider, and
-ordinary > fixed > flex. In any case, a particular vacation moment will only be counted once.
-
-Note, the Rust version of JobLog is adding some features to vacations: on and off times for repeating vacations.
-Because of this you will not be able to use the vacation file with the Perl client after you add repeating vacations.
-    "
 }
 
 pub fn run(matches: &ArgMatches) {

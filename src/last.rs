@@ -8,13 +8,29 @@ use crate::util::{common_search_or_filter_arguments, display_events, display_not
 use chrono::Local;
 use clap::{App, ArgMatches, SubCommand};
 
+fn after_help() -> &'static str {
+    "Frequently you want to know your most recently initiated task or written note, \
+or the last task or note you worked on of a particular type. This command satisfies that want.
+
+  > job last
+  Friday, 17 January
+    1:10 pm - 5:03  4.00  42, mr, sb  Multi-Floob Review Part 1
+
+  TOTAL HOURS 4.00
+  42          4.00
+  mr          4.00
+  sb          4.00
+
+All prefixes of 'last' are aliases of the subcommand."
+}
+
 pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
     mast.subcommand(
         common_search_or_filter_arguments(
             SubCommand::with_name("last")
                 .aliases(&["l", "la", "las"])
-                .about("show the last task recorded")
-                .after_help("Frequently you want to know your most recently initiated task or written note, or the last task or note you worked on of a particular type. This command satisfies that want.")
+                .about("Shows the last task recorded")
+                .after_help(after_help())
                 .display_order(display_order),
                 None
         )

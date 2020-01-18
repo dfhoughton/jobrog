@@ -4,33 +4,44 @@ extern crate deflate;
 use crate::util::remainder;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 
+fn after_help() -> &'static str {
+    "\
+Over time your log will fill with cruft: work no one is interested in any longer, \
+tags whose meaning you've forgotten. What you want to do at this point is chop off \
+all the old stuff, stash it somewhere you can find it if need be, and \
+retain in your active log only the more recent events. This is what truncate is for. \
+You give it a starting date and it splits your log into two with the active portion \
+containing all moments on that date or after. The older portion is \
+retained in the hidden directory.
+
+All prefixes of 'truncate' are aliases of the subcommand."
+}
+
 pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
     mast.subcommand(
         SubCommand::with_name("truncate")
             .aliases(&["tr", "tru", "trun", "trunc", "trunca", "truncat"])
             .about("truncate the log to only recent events")
-            .after_help("Over time your log will fill with cruft: work no one is interested in any longer, tags whose meaning you've forgotten. What you want to do at this point is chop off all the old stuff, stash it somewhere you can find it if need be, and 
-retain in your active log only the more recent events. This is what truncate is for. You give it a starting date and it splits your log into two with the active portion containing all moments on that date or after. The older portion is 
-retained in the hidden directory.")
+            .after_help(after_help())
             .arg(
                 Arg::with_name("zip")
                 .short("z")
                 .long("zip")
-                .help("compress truncated head of log with zip")
+                .help("Compresses truncated head of log with zip")
                 .long_help("To conserve space, compress the truncated head of the log with Zlib.")
             )
             .arg(
                 Arg::with_name("gzip")
                 .short("g")
                 .long("gzip")
-                .help("compress truncated head of log with gzip")
+                .help("Compresses truncated head of log with gzip")
                 .long_help("To conserve space, compress the truncated head of the log with Gzip.")
             )
             .arg(
                 Arg::with_name("deflate")
                 .short("d")
                 .long("deflate")
-                .help("compress truncated head of log with deflate")
+                .help("Compresses truncated head of log with deflate")
                 .long_help("To conserve space, compress the truncated head of the log with DEFLATE.")
             )
             .setting(AppSettings::TrailingVarArg)

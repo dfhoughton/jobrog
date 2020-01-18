@@ -6,12 +6,30 @@ use crate::log::{Item, LogController};
 use crate::util::{check_for_ongoing_event, describe, some_nws};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 
+fn after_help() -> &'static str {
+    "This is the essential job command: adding an event to the log.
+
+  job add --tag doc just documenting a log line
+
+Each event line in the log consists of a timestamp with units in \
+descending order of significance, an optional set of tags, and a description. \
+These three parts are separated by colons:
+
+  2019  7  6 18  1 30:doc:just documenting a log line
+
+Tags facilitate categorizing and searching for events. When you use the summary \
+subcommand to view the events in a particular period the time is shown aggregated \
+by tag as well.
+
+All prefixes of 'add' (so just 'a' and 'ad') are aliases for the add subcommand."
+}
+
 pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
     mast.subcommand(
         SubCommand::with_name("add")
             .aliases(&["a", "ad"])
-            .about("add a new task")
-            .after_help("This is the essential job command: adding an event to the log. Each event line in the log consists of a timestamp, with units in descending order of significance, an optional set of tags, and a description. These three parts are separated by colons. E.g.,\n\n  2019  7  6 18  1 30:doc:just documenting a log line")
+            .about("Adds a new task")
+            .after_help(after_help())
             .arg(
                 Arg::with_name("tag")
                 .short("t")

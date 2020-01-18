@@ -8,13 +8,30 @@ use crate::util::{common_search_or_filter_arguments, display_events, display_not
 use chrono::Local;
 use clap::{App, ArgMatches, SubCommand};
 
+fn after_help() -> &'static str {
+    "Should you want to find the first task of a particular sort in the log, the 'first' \
+subcommand will find it for you. This is slightly easier than visually scanning the log. \
+If you want to find the first event or note with a particular description of tag, this \
+subcommand is the way to go.
+
+  > job first --tag g
+  Thursday,  4 December 2014
+    10:30 am - 11:42  1.25  g  setting up to work on Gargamel
+
+  TOTAL HOURS 1.25
+  g           1.25
+
+All prefixes of 'first' are aliases of the subcommand.
+"
+}
+
 pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
     mast.subcommand(
         common_search_or_filter_arguments(
             SubCommand::with_name("first")
                 .aliases(&["f", "fi", "fir", "firs"])
-                .about("show the first task recorded")
-                .after_help("Should you want to find the first task of a particular sort in the log, this is a bit easier than scanning the log visually.")
+                .about("Shows the first task recorded")
+                .after_help(after_help())
                 .display_order(display_order),
                 None
         )

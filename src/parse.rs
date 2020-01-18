@@ -10,16 +10,19 @@ use colonnade::Colonnade;
 use two_timer::parse;
 
 fn after_help() -> &'static str {
-    "Natural language time expressions are easy to produce, but it isn't always obvious
-what fully-specified times they correspond to. Sometimes you may want to know this before
-you give one to Job Log. Perhaps you summarize the log for a particular period and the
-results don't look right. Perhaps you are about to make a change that involves a timestamp
-and you want to make sure you'll get the change you want. This is what parse-time is for.
+    "\
+Natural language time expressions are easy to produce, but it isn't always obvious \
+what fully-specified times they correspond to. Sometimes you may want to know this before \
+you give one to Job Log. Perhaps you summarize the log for a particular period and the \
+results don't look right. Perhaps you are about to make a change that involves a timestamp \
+and you want to make sure you'll get the change you want. This is what parse-time is for. \
 Give it a string and see what you get.
 
-The parse-time subcommand returns the first moment inclusive of the time expression, the
-last moment exclusive and whether the expression explicitly name both the beginning and
+The parse-time subcommand returns the first moment inclusive of the time expression, the \
+last moment exclusive and whether the expression explicitly name both the beginning and \
 the end of the range.
+
+All prefixes of 'parse-time' are aliases of the subcommand.
 "
 }
 

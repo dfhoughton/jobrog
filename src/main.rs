@@ -8,12 +8,16 @@ use jobrog::{
     util, vacation, when,
 };
 
+fn after_help() -> &'static str {
+    "TODO: fill out detailed help"
+}
+
 fn main() {
     util::init();
     let mut cli = App::new("testing")
         .version(crate_version!())
         .author(crate_authors!())
-        .after_help("TODO: fill out detailed help")
+        .after_help(after_help())
         .about(crate_description!());
     // for determining the listing order
     let order = [
