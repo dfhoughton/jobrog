@@ -5,7 +5,7 @@ use crate::log::{Item, LogController};
 use crate::util::{check_for_ongoing_event, describe, some_nws};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 
-pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
+pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
     mast.subcommand(
         SubCommand::with_name("note")
             .aliases(&["n", "no", "not"])
@@ -43,7 +43,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                     .required(true)
                     .multiple(true)
             )
-            .display_order(4)
+            .display_order(display_order)
     )
 }
 

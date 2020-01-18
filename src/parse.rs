@@ -23,7 +23,7 @@ the end of the range.
 "
 }
 
-pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
+pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
     mast.subcommand(
         SubCommand::with_name("parse-time")
             .aliases(&[
@@ -46,7 +46,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                     .value_name("word")
                     .multiple(true),
             )
-            .display_order(11),
+            .display_order(display_order),
     )
 }
 

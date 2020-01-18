@@ -4,7 +4,7 @@ extern crate deflate;
 use crate::util::remainder;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 
-pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
+pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
     mast.subcommand(
         SubCommand::with_name("truncate")
             .aliases(&["tr", "tru", "trun", "trunc", "trunca", "truncat"])
@@ -44,7 +44,7 @@ retained in the hidden directory.")
                     .required(true)
                     .multiple(true)
             )
-            .display_order(12)
+            .display_order(display_order)
     )
 }
 

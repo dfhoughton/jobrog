@@ -7,13 +7,13 @@ use crate::util::{check_for_ongoing_event, describe, display_events, warn};
 use chrono::Local;
 use clap::{App, SubCommand};
 
-pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
+pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
     mast.subcommand(
         SubCommand::with_name("done")
             .aliases(&["d", "do", "don"])
             .about("end the current open task")
             .after_help("Place a DONE timestamp in the job log. E.g.,\n\n  2019  1  2 15 04 05:DONE\n\nIf the last log line is a DONE timestamp, there is no task ongoing.")
-            .display_order(1)
+            .display_order(display_order)
     )
 }
 

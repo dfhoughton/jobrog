@@ -15,21 +15,26 @@ fn main() {
         .author(crate_authors!())
         .after_help("TODO: fill out detailed help")
         .about(crate_description!());
-    cli = add::cli(cli);
-    cli = done::cli(cli);
-    cli = resume::cli(cli);
-    cli = last::cli(cli);
-    cli = first::cli(cli);
-    cli = when::cli(cli);
-    cli = summary::cli(cli);
-    cli = edit::cli(cli);
-    cli = note::cli(cli);
-    cli = configure::cli(cli);
-    cli = truncate::cli(cli);
-    cli = vacation::cli(cli);
-    cli = parse::cli(cli);
-    cli = statistics::cli(cli);
-    // cli = tags::cli(cli);
+    // for determining the listing order
+    let order = [
+        add::cli,
+        summary::cli,
+        done::cli,
+        resume::cli,
+        last::cli,
+        first::cli,
+        note::cli,
+        when::cli,
+        edit::cli,
+        configure::cli,
+        vacation::cli,
+        parse::cli,
+        truncate::cli,
+        statistics::cli,
+    ];
+    for (i, command) in order.iter().enumerate() {
+        cli = command(cli, i);
+    }
     let matches = cli.get_matches();
     match matches.subcommand() {
         ("add", Some(m)) => add::run(m),

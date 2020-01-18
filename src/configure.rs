@@ -104,7 +104,7 @@ fn valid_beginning_work_day(v: String) -> Result<(), String> {
     }
 }
 
-pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
+pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
     mast.subcommand(
         SubCommand::with_name("configure")
             .aliases(&["c", "co", "con", "conf", "confi", "config", "configu", "configur"])
@@ -201,7 +201,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                 .help("list all configuration parameters")
                 .long_help("List all configuration parameters and their values.")
             )
-            .display_order(8)
+            .display_order(display_order)
     )
 }
 

@@ -10,7 +10,7 @@ use chrono::{Duration, Local, NaiveDate, NaiveDateTime};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use two_timer::parse;
 
-pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
+pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
     mast.subcommand(
         SubCommand::with_name("when")
             .aliases(&["w", "wh", "whe"])
@@ -27,7 +27,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                     .default_value("today")
                     .multiple(true)
             )
-            .display_order(6)
+            .display_order(display_order)
     )
 }
 

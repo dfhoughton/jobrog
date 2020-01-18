@@ -12,13 +12,13 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
 
-pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
+pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
     mast.subcommand(
         SubCommand::with_name("edit")
             .aliases(&["e", "ed", "edi"])
             .about("open the job log in a text editor")
             .after_help("Sometimes you will")
-            .display_order(7)
+            .display_order(display_order)
             .arg(
                 Arg::with_name("validate")
                 .long("validate")

@@ -13,11 +13,12 @@ use chrono::{Duration, Local};
 use clap::{App, Arg, ArgMatches, SubCommand};
 use two_timer::{parsable, parse};
 
-pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
+pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
     mast.subcommand(common_search_or_filter_arguments(
         SubCommand::with_name("summary")
-            .aliases(&["s", "su", "sum", "summ", "summa", "summar", "to"]) // the last is there because I'm used to there being a today subcommand which does what summary with no further arguments does in jobrog
-            .about("says when you will have worked all the hours expected within the given period")
+            .aliases(&["s", "su", "sum", "summ", "summa", "summar", "to"])
+            // the last, "to", is there because I'm used to there being a today subcommand which does what summary with no further arguments does in jobrog
+            .about("Says when you will have worked all the hours expected within the given period")
             .after_help(".")
             .arg(
                 Arg::with_name("period")
@@ -29,7 +30,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                     .default_value("today")
                     .multiple(true)
             )
-            .display_order(2),
+            .display_order(display_order),
             None,
     ).arg(
         Arg::with_name("date")

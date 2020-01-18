@@ -10,7 +10,7 @@ use clap::{App, Arg, ArgMatches, SubCommand};
 use colonnade::{Alignment, Colonnade};
 use std::collections::BTreeSet;
 
-pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
+pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
     mast.subcommand(
         SubCommand::with_name("statistics")
             .aliases(&[
@@ -31,7 +31,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                     .display_order(1),
             )
             .about("Shows overall statistics of the log")
-            .display_order(14),
+            .display_order(display_order),
     )
 }
 

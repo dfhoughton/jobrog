@@ -8,14 +8,14 @@ use crate::util::{common_search_or_filter_arguments, display_events, display_not
 use chrono::Local;
 use clap::{App, ArgMatches, SubCommand};
 
-pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
+pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
     mast.subcommand(
         common_search_or_filter_arguments(
             SubCommand::with_name("last")
                 .aliases(&["l", "la", "las"])
                 .about("show the last task recorded")
                 .after_help("Frequently you want to know your most recently initiated task or written note, or the last task or note you worked on of a particular type. This command satisfies that want.")
-                .display_order(3),
+                .display_order(display_order),
                 None
         )
     )

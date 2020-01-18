@@ -49,7 +49,7 @@ fn number_date_validator(v: String) -> Result<(), String> {
     }
 }
 
-pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
+pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
     mast.subcommand(
         SubCommand::with_name("vacation")
             .aliases(&["v", "va", "vac", "vaca", "vacat", "vacati", "vacatio"])
@@ -166,7 +166,7 @@ pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
                     .value_name("description")
                     .multiple(true)
             )
-            .display_order(13)
+            .display_order(display_order)
     )
 }
 

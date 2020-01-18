@@ -6,12 +6,12 @@ use crate::log::{Event, Filter, Item, LogController};
 use crate::util::{check_for_ongoing_event, common_search_or_filter_arguments, describe, warn};
 use clap::{App, ArgMatches, SubCommand};
 
-pub fn cli(mast: App<'static, 'static>) -> App<'static, 'static> {
+pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
     mast.subcommand(common_search_or_filter_arguments(
         SubCommand::with_name("resume")
             .aliases(&["r", "re", "res", "resu", "resum"])
             .about("resume the last stopped task")
-            .display_order(5),
+            .display_order(display_order),
         Some(true),
     ))
 }
