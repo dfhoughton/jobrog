@@ -2,7 +2,7 @@ extern crate chrono;
 extern crate clap;
 
 use crate::configure::Configuration;
-use crate::log::{parse_line, timestamp, Item, Done};
+use crate::log::{parse_line, timestamp, Item};
 use crate::util::{base_dir, fatal, log_path, warn};
 use chrono::{Local, NaiveDateTime};
 use clap::{App, Arg, ArgMatches, SubCommand};
@@ -325,6 +325,7 @@ fn validate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::log::Done;
     use crate::log::{Event, LogLine};
     use chrono::{Duration, NaiveDate};
 
@@ -471,8 +472,9 @@ mod tests {
         let mut events = vec![];
         for duration in &[2, 1, 3] {
             let done = Done(t.clone());
-             t = t + Duration::hours(*duration as i64);
-            events.push(done.to_line());println!("foo");
+            t = t + Duration::hours(*duration as i64);
+            events.push(done.to_line());
+            println!("foo");
         }
         let now = t + Duration::weeks(1);
         let (name, buff) = create_log(disambiguator, &events);
@@ -559,5 +561,4 @@ mod tests {
             validation_path,
         ]);
     }
-
 }
