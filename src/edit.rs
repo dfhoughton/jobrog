@@ -197,13 +197,14 @@ fn validation_messages(
         }
         copy(validation_file(validation_file_name), log_file(log))
             .expect("could not copy validation file to log");
-        std::fs::remove_file(validation_file(validation_file_name))
-            .expect("could not remove validation file");
     } else {
         if !testing {
             println!("log is valid")
         }
     }
+    std::fs::remove_file(backup_backup_file()).expect("could not remove backup backup file");
+    std::fs::remove_file(validation_file(validation_file_name))
+        .expect("could not remove validation file");
 }
 
 // returns line number and error count
