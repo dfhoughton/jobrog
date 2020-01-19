@@ -1351,7 +1351,8 @@ impl Item {
             _ => false,
         }
     }
-    fn offset(&self) -> usize {
+    // the line offset of the item
+    pub fn offset(&self) -> usize {
         match self {
             Item::Event(_, i) => *i,
             Item::Note(_, i) => *i,

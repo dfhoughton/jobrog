@@ -15,6 +15,7 @@ use dirs::home_dir;
 use regex::Regex;
 use std::collections::BTreeMap;
 use std::fs::{create_dir, File};
+use std::io;
 use std::io::Write;
 
 const ONGOING: &str = "ongoing";
@@ -546,4 +547,27 @@ pub fn some_nws(s: &str) -> bool {
         }
     }
     return false;
+}
+
+// ask a yes or no question and await an answer
+pub fn yes_or_no<T: ToString>(msg: T) -> bool {
+    loop {
+        print!("{} [Yn] ", msg.to_string());
+        io::stdout().flush().expect("could not flush stdout");
+        let mut buffer = String::new();
+        io::stdin()
+            .read_line(&mut buffer)
+            .expect("failed to read response");
+        let buffer = buffer.as_str().trim().to_owned();
+        if buffer.len() == 0 {
+            return true;
+        }
+        match buffer.as_str() {
+            "y" | "Y" => return true,
+            "n" | "N" => return false,
+            _ => {
+                println!("please answer y or n");
+            }
+        }
+    }
 }

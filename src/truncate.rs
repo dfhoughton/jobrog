@@ -1,8 +1,20 @@
+extern crate chrono;
 extern crate clap;
-extern crate deflate;
+extern crate flate2;
+extern crate two_timer;
 
+use crate::configure::Configuration;
+use crate::log::LogController;
 use crate::util::remainder;
+use crate::util::{base_dir, fatal, log_path, warn, yes_or_no};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+use flate2::write::GzEncoder;
+use flate2::Compression;
+use std::fs::File;
+use std::io::{BufReader, BufWriter, Read, Write};
+use two_timer::{parsable, parse};
+
+const BUFFER_SIZE: usize = 16 * 1024;
 
 fn after_help() -> &'static str {
     "\
@@ -20,29 +32,15 @@ All prefixes of 'truncate' are aliases of the subcommand."
 pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
     mast.subcommand(
         SubCommand::with_name("truncate")
-            .aliases(&["tr", "tru", "trun", "trunc", "trunca", "truncat"])
+            .aliases(&["t", "tr", "tru", "trun", "trunc", "trunca", "truncat"])
             .about("Truncates the log so it only contains recent events")
             .after_help(after_help())
-            .arg(
-                Arg::with_name("zip")
-                .short("z")
-                .long("zip")
-                .help("Compresses truncated head of log with zip")
-                .long_help("To conserve space, compress the truncated head of the log with Zlib.")
-            )
             .arg(
                 Arg::with_name("gzip")
                 .short("g")
                 .long("gzip")
                 .help("Compresses truncated head of log with gzip")
                 .long_help("To conserve space, compress the truncated head of the log with Gzip.")
-            )
-            .arg(
-                Arg::with_name("deflate")
-                .short("d")
-                .long("deflate")
-                .help("Compresses truncated head of log with deflate")
-                .long_help("To conserve space, compress the truncated head of the log with DEFLATE.")
             )
             .setting(AppSettings::TrailingVarArg)
             .arg(
@@ -51,7 +49,7 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
                     .long_help(
                         "All the <date> arguments are concatenated to produce the cutoff date. Events earlier than this moment will be preserved in the truncated head of the log. Events on or after this date will remain in the active log.",
                     )
-                    .value_name("description")
+                    .value_name("date")
                     .required(true)
                     .multiple(true)
             )
@@ -60,5 +58,119 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
 }
 
 pub fn run(matches: &ArgMatches) {
-    println!("truncated; date: {}", remainder("date", matches));
+    let time_expression = remainder("date", matches);
+    let conf = Configuration::read(None);
+    if parsable(&time_expression) {
+        let (t, _, _) = parse(&time_expression, conf.two_timer_config()).unwrap();
+        let mut log = LogController::new(None).expect("could not read the log file");
+        if let Some(item) = log.find_line(&t) {
+            let filename = format!("log.head-to-{}", t);
+            let mut filename = filename.as_str().replace(" ", "_").to_owned();
+            if matches.is_present("gzip") {
+                filename += ".gz";
+            }
+            let mut path = base_dir();
+            path.push(&filename);
+            if path.as_path().exists() {
+                let overwrite = yes_or_no(format!(
+                    "file {} already exists; overwrite?",
+                    path.to_str().unwrap()
+                ));
+                if !overwrite {
+                    fatal("could not truncate log", &conf);
+                }
+            }
+            if temp_log_path().as_path().exists() {
+                let overwrite = yes_or_no(format!(
+                    "the temporary log file {} already exists; overwrite?",
+                    temp_log_path().to_str().unwrap()
+                ));
+                if !overwrite {
+                    fatal("could not truncate log", &conf);
+                }
+            }
+            let offset = log.larry.offset(item.offset()).unwrap() as usize;
+            let mut bytes_read = 0;
+            let original_file = File::open(log_path()).expect("cannot open log file for reading");
+            let mut reader = BufReader::new(original_file);
+            let head_file =
+                File::create(path).expect(&format!("could not open {} for writing", filename));
+            let mut head_writer = BufWriter::new(head_file);
+            if matches.is_present("gzip") {
+                let mut encoder = GzEncoder::new(head_writer, Compression::best());
+                while bytes_read < offset {
+                    let delta = offset - bytes_read;
+                    let mut buffer: Vec<u8> = if delta < BUFFER_SIZE {
+                        vec![0; delta]
+                    } else {
+                        vec![0; BUFFER_SIZE]
+                    };
+                    reader
+                        .read_exact(&mut buffer)
+                        .expect("failed to read data from log");
+                    encoder
+                        .write_all(&buffer)
+                        .expect("failed to write data to head file");
+                    bytes_read += buffer.capacity();
+                    buffer.clear();
+                }
+                encoder
+                    .finish()
+                    .expect("failed to complete compression of head file");
+            } else {
+                while bytes_read < offset {
+                    let delta = offset - bytes_read;
+                    let mut buffer: Vec<u8> = if delta < BUFFER_SIZE {
+                        vec![0; delta]
+                    } else {
+                        vec![0; BUFFER_SIZE]
+                    };
+                    reader
+                        .read_exact(&mut buffer)
+                        .expect("failed to read data from log");
+                    head_writer
+                        .write_all(&buffer)
+                        .expect("failed to write data to head file");
+                    bytes_read += buffer.len();
+                }
+                head_writer.flush().expect("failed to close head file");
+            }
+            let tail_file =
+                File::create(temp_log_path()).expect("could not open log.tmp for writing");
+            let mut tail_writer = BufWriter::new(tail_file);
+            loop {
+                let mut buffer: Vec<u8> = vec![0; BUFFER_SIZE];
+                let bytes_read = reader.read(&mut buffer).expect("failed to read from log");
+                if bytes_read == 0 {
+                    tail_writer.flush().expect("failed to close log.tmp");
+                    break;
+                }
+                tail_writer
+                    .write_all(&buffer)
+                    .expect("failed to write to log.tmp");
+            }
+            std::fs::rename(&temp_log_path(), &log_path())
+                .expect("failed to copy new log file into place");
+            println!("saved truncated portion of log to {}", filename);
+        } else {
+            warn(
+                format!(
+                    "could not find anything in log on or after '{}'; not truncating",
+                    time_expression
+                ),
+                &conf,
+            );
+        }
+    } else {
+        fatal(
+            format!("cannot parse '{}' as a time expression", time_expression),
+            &conf,
+        );
+    }
+}
+
+fn temp_log_path() -> std::path::PathBuf {
+    let mut path = base_dir();
+    path.push("log.tmp");
+    path
 }

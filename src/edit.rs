@@ -12,6 +12,8 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
 
+const BUFFER_SIZE: usize = 16 * 1024;
+
 fn after_help() -> &'static str {
     "Sometimes you will fail to log a change of tasks, fail to log out at the end \
 of the day, or find you spent more time than is allowed at lunch. In these cases you \
@@ -209,21 +211,21 @@ fn validate(
         .expect("could not open file to receive validation output");
     let mut writer = BufWriter::new(validation_file);
     let mut bytes_written: usize = 0;
-    let mut buffer: Vec<u8> = Vec::with_capacity(1024);
     // fill up the validation file up to the offset without validating
     while bytes_written < byte_offset {
         let delta = byte_offset - bytes_written;
-        if delta < buffer.capacity() {
-            buffer = Vec::with_capacity(delta);
-        }
+        let mut buffer: Vec<u8> = if delta < BUFFER_SIZE {
+            vec![0; delta]
+        } else {
+            vec![0; BUFFER_SIZE]
+        };
         reader
             .read_exact(&mut buffer)
             .expect("could not read from log file");
-        bytes_written += buffer.capacity();
+        bytes_written += buffer.len();
         writer
             .write_all(&buffer)
             .expect("could not write to validation file");
-        buffer.clear();
     }
     // now start validating
     let mut buffer = String::new();
