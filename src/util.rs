@@ -377,8 +377,9 @@ pub fn fatal<T: ToString>(msg: T, conf: &Configuration) {
     std::process::exit(1);
 }
 
-pub fn describe(action: &str, item: Item) {
-    let mut s = action.to_owned();
+pub fn describe(action: &str, item: Item, conf: &Configuration) {
+    let style = Style::new(conf);
+    let mut s = style.blue(action);
     s += " ";
     match item {
         Item::Event(
@@ -388,14 +389,14 @@ pub fn describe(action: &str, item: Item) {
             _,
         ) => {
             s += &description;
-            s += " ";
+            s += " (";
             if tags.is_empty() {
-                s += &Blue.paint("no tags").to_string();
+                s += &style.blue("no tags");
             } else {
-                s += "(";
-                s += &Blue.paint(tags.join(", ")).to_string();
-                s += ")"
+                s += "tags: ";
+                s += &style.blue(tags.join(", "));
             }
+            s += ")"
         }
         Item::Note(
             Note {
@@ -404,14 +405,14 @@ pub fn describe(action: &str, item: Item) {
             _,
         ) => {
             s += &description;
-            s += " ";
+            s += " (";
             if tags.is_empty() {
-                s += &Blue.paint("no tags").to_string();
+                s += &style.blue("no tags");
             } else {
-                s += "(";
-                s += &Blue.paint(tags.join(", ")).to_string();
-                s += ")"
+                s += "tags: ";
+                s += &style.blue(tags.join(", "));
             }
+            s += ")"
         }
         Item::Done(d, _) => s += &format!("{}", d.0.format("at %l:%M %P")),
         _ => (),

@@ -25,7 +25,7 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
             .aliases(&["d", "do", "don"])
             .about("Ends a currently open task")
             .after_help(after_help())
-            .display_order(display_order)
+            .display_order(display_order),
     )
 }
 
@@ -38,7 +38,7 @@ pub fn run() {
             let (done, offset) = reader.close_event();
             let mut message = String::from("ending ");
             message += &event.description;
-            describe(&message, Item::Done(done, offset));
+            describe(&message, Item::Done(done, offset), &conf);
         } else {
             warn("the most recent event is not ongoing", &conf);
             let now = Local::now().naive_local();

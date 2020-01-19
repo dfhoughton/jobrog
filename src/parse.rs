@@ -40,7 +40,7 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
                 "parse-ti",
                 "parse-tim",
             ])
-            .about("see the start and end timestamps you get from a particular time expression")
+            .about("Shows the start and end timestamps you get from a particular time expression")
             .after_help(after_help())
             .arg(
                 Arg::with_name("period")

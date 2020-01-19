@@ -145,7 +145,7 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
     mast.subcommand(
         SubCommand::with_name("configure")
             .aliases(&["c", "co", "con", "conf", "confi", "config", "configu", "configur"])
-            .about("set or display configuration parameters")
+            .about("Sets or displays configuration parameters")
             .after_help(after_help())
             // NOTE I'm not using default_value here so we can identify when the user misuses the subcommand and should be prompted
             .arg(

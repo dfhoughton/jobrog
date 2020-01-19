@@ -21,7 +21,7 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
     mast.subcommand(
         SubCommand::with_name("truncate")
             .aliases(&["tr", "tru", "trun", "trunc", "trunca", "truncat"])
-            .about("truncate the log to only recent events")
+            .about("Truncates the log so it only contains recent events")
             .after_help(after_help())
             .arg(
                 Arg::with_name("zip")

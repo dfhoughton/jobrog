@@ -96,7 +96,7 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
     mast.subcommand(
         SubCommand::with_name("vacation")
             .aliases(&["v", "va", "vac", "vaca", "vacat", "vacati", "vacatio"])
-            .about("record vacation time")
+            .about("Records vacation time")
             .after_help(after_help())
             .arg(
                 Arg::with_name("add")
