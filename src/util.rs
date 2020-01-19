@@ -195,7 +195,7 @@ pub fn display_notes(
     end: &NaiveDateTime,
     configuration: &Configuration,
 ) {
-    let color = Style::new(configuration);
+    let style = Style::new(configuration);
     let same_year = start.year() == end.year();
     let mut last_time: Option<NaiveDateTime> = None;
     let mut last_date: Option<NaiveDate> = None;
@@ -218,13 +218,13 @@ pub fn display_notes(
     for (offset, row) in note_table.macerate(data).unwrap().iter().enumerate() {
         let date = notes[offset].time.date();
         if last_date.is_none() || last_date.unwrap() != date {
-            println!("{}", color.blue(date_string(&date, same_year)));
+            println!("{}", style.blue(date_string(&date, same_year)));
         }
         last_date = Some(date);
         for line in row {
             for (cell_num, (margin, cell)) in line.iter().enumerate() {
                 let cell = match cell_num {
-                    1 => color.green(cell),
+                    1 => style.green(cell),
                     _ => cell.to_owned(),
                 };
                 print!("{}{}", margin, cell);
@@ -240,7 +240,7 @@ pub fn display_events(
     end: &NaiveDateTime,
     configuration: &Configuration,
 ) {
-    let color = Style::new(configuration);
+    let style = Style::new(configuration);
     let mut last_time: Option<NaiveDateTime> = None;
     let mut last_date: Option<NaiveDate> = None;
     let mut durations: BTreeMap<String, f32> = BTreeMap::new();
@@ -295,7 +295,7 @@ pub fn display_events(
     for (offset, row) in event_table.macerate(data).unwrap().iter().enumerate() {
         let date = events[offset].start.date();
         if last_date.is_none() || last_date.unwrap() != date {
-            println!("{}", color.blue(date_string(&date, same_year)));
+            println!("{}", style.blue(date_string(&date, same_year)));
         }
         last_date = Some(date);
         let ongoing = ONGOING.to_owned();
@@ -304,19 +304,19 @@ pub fn display_events(
                 let cell = match cell_num {
                     2 => {
                         if cell == &ongoing {
-                            color.purple(cell)
+                            style.purple(cell)
                         } else {
                             cell.to_owned()
                         }
                     }
                     3 => {
                         if events[offset].vacation {
-                            color.purple(cell)
+                            style.purple(cell)
                         } else {
-                            color.green(cell)
+                            style.green(cell)
                         }
                     }
-                    4 => color.blue(cell),
+                    4 => style.blue(cell),
                     _ => cell.to_owned(),
                 };
                 print!("{}{}", margin, cell);
@@ -355,7 +355,7 @@ pub fn display_events(
             for (cell_num, (margin, cell)) in line.iter().enumerate() {
                 // header values are red
                 let cell = if cell_num == 0 && offset < header_count {
-                    color.red(cell)
+                    style.red(cell)
                 } else {
                     cell.to_owned()
                 };
@@ -367,13 +367,13 @@ pub fn display_events(
 }
 
 pub fn warn<T: ToString>(msg: T, conf: &Configuration) {
-    let color = Style::new(&conf);
-    eprintln!("{} {}", color.purple("warning:"), msg.to_string());
+    let style = Style::new(&conf);
+    eprintln!("{} {}", style.purple("warning:"), msg.to_string());
 }
 
 pub fn fatal<T: ToString>(msg: T, conf: &Configuration) {
-    let color = Style::new(&conf);
-    eprintln!("{} {}", color.bold(color.red("error:")), msg.to_string());
+    let style = Style::new(&conf);
+    eprintln!("{} {}", style.bold(style.red("error:")), msg.to_string());
     std::process::exit(1);
 }
 
