@@ -313,10 +313,10 @@ pub fn display_events(
                         if events[offset].vacation {
                             color.purple(cell)
                         } else {
-                            color.cyan(cell)
+                            color.green(cell)
                         }
                     }
-                    4 => color.green(cell),
+                    4 => color.blue(cell),
                     _ => cell.to_owned(),
                 };
                 print!("{}{}", margin, cell);
