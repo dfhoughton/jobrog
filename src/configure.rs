@@ -23,12 +23,14 @@ pub const DAY_LENGTH: &str = "8";
 pub const BEGINNING_WORK_DAY: (usize, usize) = (9, 0);
 pub const WORKDAYS: &str = "MTWHF";
 pub const COLOR: &str = "true";
+pub const TRUNCATION: &str = "round";
 
 fn after_help() -> &'static str {
     "Set or display configuration parameters that control date interpretation, log summarization, etc.
 
   > job configure --list
   precision                quarter
+  truncation                 round
   max-width
   length-pay-period              7
   start-pay-period       2016 10 3
@@ -42,6 +44,7 @@ fn after_help() -> &'static str {
   setting precision to 2!
   > job configure --list
   precision                      2
+  truncation                 round
   max-width
   length-pay-period              7
   start-pay-period       2016 10 3
@@ -155,6 +158,14 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
                 .long_help("The number of decimal places of precision used in the display of lengths of periods in numbers of hours. If the number is 0, probably not what you want, all periods will be rounded to a whole number of hours. The default value is 2. If the precision is 'quarter' times will be rounded to the quarter hour for display.")
                 .possible_values(&["0", "1", "2", "3", "quarter"])
                 .value_name("int")
+            )
+            .arg(
+                Arg::with_name("truncation")
+                .long("truncation")
+                .help("Sets how fractional parts of a duration too small to display for the given precision are handled; default value: round")
+                .long_help("When an events duration is displayed, there is generally some amount of information not displayed given the precision. By default this portion is rounded, so if the precision is a quarter hour and the duration is 7.5 minutes, this will be displayed as 0.25 hours. Alternatively, one could use the floor, in which case this would be 0.00 hours, or the ceiling, in which case even a single second task would be shown as taking 0.25 hours.")
+                .possible_values(&["round", "floor", "ceiling"])
+                .value_name("func")
             )
             .arg(
                 Arg::with_name("start-pay-period")
@@ -353,6 +364,19 @@ pub fn run(matches: &ArgMatches) {
             }
         }
     }
+    if matches.is_present("truncation") {
+        did_something = true;
+        if let Some(v) = matches.value_of("truncation") {
+            let v = Truncation::from_s(v);
+            if v == conf.truncation {
+                warn(format!("truncation is already {}!", v.to_s()), &conf);
+            } else {
+                println!("setting truncation to {}!", v.to_s());
+                conf.truncation = v;
+                write = true;
+            }
+        }
+    }
     if matches.is_present("workdays") {
         did_something = true;
         if let Some(v) = matches.value_of("workdays") {
@@ -415,6 +439,10 @@ pub fn run(matches: &ArgMatches) {
                     conf.precision = Precision::from_s(PRECISION);
                     write = true;
                 }
+                "truncation" => {
+                    conf.truncation = Truncation::from_s(TRUNCATION);
+                    write = true;
+                }
                 "start-pay-period" => {
                     conf.start_pay_period = None;
                     write = true;
@@ -450,6 +478,10 @@ pub fn run(matches: &ArgMatches) {
             vec![
                 String::from("precision"),
                 format!("{}", conf.precision.to_s()),
+            ],
+            vec![
+                String::from("truncation"),
+                format!("{}", conf.truncation.to_s()),
             ],
             vec![
                 String::from("max-width"),
@@ -547,6 +579,72 @@ pub fn run(matches: &ArgMatches) {
 }
 
 #[derive(Debug, Clone)]
+pub enum Truncation {
+    Round,
+    Floor,
+    Ceiling,
+}
+
+impl Truncation {
+    fn to_s(&self) -> &str {
+        match self {
+            Truncation::Round => "round",
+            Truncation::Floor => "floor",
+            Truncation::Ceiling => "ceiling",
+        }
+    }
+    fn from_s(s: &str) -> Truncation {
+        match s {
+            "round" => Truncation::Round,
+            "ceiling" => Truncation::Ceiling,
+            "floor" => Truncation::Floor,
+            _ => unreachable!(),
+        }
+    }
+    pub fn prepare(&self, n: f32, precision: &Precision) -> f32 {
+        match self {
+            Truncation::Round => match precision {
+                Precision::Quarter => (n * 4.0).round() / 4.0,
+                _ => n, // the rest will be taken care of by the formatter
+            },
+            _ => {
+                let mut n = n;
+                let multiplicand: f32 = match precision {
+                    Precision::Quarter => 4.0,
+                    _ => (10.0 as f32).powf(precision.precision() as f32),
+                };
+                n *= multiplicand;
+                n = match self {
+                    Truncation::Ceiling => n.ceil(),
+                    Truncation::Floor => n.floor(),
+                    _ => unreachable!(),
+                };
+                n / multiplicand
+            }
+        }
+    }
+}
+
+impl PartialEq for Truncation {
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            Truncation::Round => match other {
+                Truncation::Round => true,
+                _ => false,
+            },
+            Truncation::Floor => match other {
+                Truncation::Floor => true,
+                _ => false,
+            },
+            Truncation::Ceiling => match other {
+                Truncation::Ceiling => true,
+                _ => false,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum Precision {
     P0,
     P1,
@@ -584,12 +682,6 @@ impl Precision {
             Precision::Quarter => 2,
         }
     }
-    pub fn prepare(&self, n: f32) -> f32 {
-        match self {
-            Precision::Quarter => (n * 4.0).round() / 4.0,
-            _ => n,
-        }
-    }
 }
 
 impl PartialEq for Precision {
@@ -625,6 +717,7 @@ pub struct Configuration {
     pub editor: Option<String>,
     pub length_pay_period: u32,
     pub precision: Precision,
+    pub truncation: Truncation,
     pub start_pay_period: Option<NaiveDate>,
     pub sunday_begins_week: bool,
     pub beginning_work_day: (usize, usize),
@@ -700,6 +793,11 @@ impl Configuration {
                     "precision",
                     PRECISION,
                 )),
+                truncation: Truncation::from_s(ini.get_from_or(
+                    Some("summary"),
+                    "truncation",
+                    TRUNCATION,
+                )),
                 start_pay_period: start_pay_period,
                 sunday_begins_week: ini.get_from_or(
                     Some("time"),
@@ -725,6 +823,7 @@ impl Configuration {
                 length_pay_period: LENGTH_PAY_PERIOD.parse().unwrap(),
                 beginning_work_day: BEGINNING_WORK_DAY.clone(),
                 precision: Precision::from_s(PRECISION),
+                truncation: Truncation::from_s(TRUNCATION),
                 start_pay_period: None,
                 color: None,
                 sunday_begins_week: SUNDAY_BEGINS_WEEK == "true",
@@ -758,6 +857,10 @@ impl Configuration {
         if self.precision != Precision::from_s(PRECISION) {
             ini.with_section(Some("summary"))
                 .set("precision", format!("{}", self.precision.to_s()));
+        }
+        if self.truncation != Truncation::from_s(TRUNCATION) {
+            ini.with_section(Some("summary"))
+                .set("truncation", format!("{}", self.truncation.to_s()));
         }
         if self.start_pay_period.is_some() {
             let spp = self.start_pay_period.unwrap();
@@ -855,4 +958,122 @@ impl Configuration {
                 .pay_period_length(self.length_pay_period),
         )
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn round_quarter() {
+        let trunctation = Truncation::Round;
+        let precision = Precision::Quarter;
+        assert_eq!(0.0, trunctation.prepare(0.0, &precision));
+        assert_eq!(0.0, trunctation.prepare(0.11, &precision));
+        assert_eq!(0.25, trunctation.prepare(0.125, &precision));
+        assert_eq!(0.25, trunctation.prepare(0.26, &precision));
+    }
+
+    #[test]
+    fn floor_quarter() {
+        let trunctation = Truncation::Floor;
+        let precision = Precision::Quarter;
+        assert_eq!(0.0, trunctation.prepare(0.0, &precision));
+        assert_eq!(0.0, trunctation.prepare(0.11, &precision));
+        assert_eq!(0.0, trunctation.prepare(0.125, &precision));
+        assert_eq!(0.25, trunctation.prepare(0.25, &precision));
+        assert_eq!(0.25, trunctation.prepare(0.26, &precision));
+    }
+
+    #[test]
+    fn ceiling_quarter() {
+        let trunctation = Truncation::Ceiling;
+        let precision = Precision::Quarter;
+        assert_eq!(0.0, trunctation.prepare(0.0, &precision));
+        assert_eq!(0.25, trunctation.prepare(0.11, &precision));
+        assert_eq!(0.25, trunctation.prepare(0.125, &precision));
+        assert_eq!(0.25, trunctation.prepare(0.25, &precision));
+        assert_eq!(0.5, trunctation.prepare(0.26, &precision));
+    }
+
+    #[test]
+    fn floor_p0() {
+        let trunctation = Truncation::Floor;
+        let precision = Precision::P0;
+        assert_eq!(0.0, trunctation.prepare(0.0, &precision));
+        assert_eq!(0.0, trunctation.prepare(0.9, &precision));
+        assert_eq!(1.0, trunctation.prepare(1.0, &precision));
+        assert_eq!(1.0, trunctation.prepare(1.9, &precision));
+    }
+
+    #[test]
+    fn ceiling_p0() {
+        let trunctation = Truncation::Ceiling;
+        let precision = Precision::P0;
+        assert_eq!(0.0, trunctation.prepare(0.0, &precision));
+        assert_eq!(1.0, trunctation.prepare(0.11, &precision));
+        assert_eq!(1.0, trunctation.prepare(1.0, &precision));
+        assert_eq!(2.0, trunctation.prepare(1.1, &precision));
+    }
+
+    #[test]
+    fn floor_p1() {
+        let trunctation = Truncation::Floor;
+        let precision = Precision::P1;
+        assert_eq!(0.0, trunctation.prepare(0.0, &precision));
+        assert_eq!(0.0, trunctation.prepare(0.09, &precision));
+        assert_eq!(0.1, trunctation.prepare(0.1, &precision));
+        assert_eq!(0.1, trunctation.prepare(0.19, &precision));
+    }
+
+    #[test]
+    fn ceiling_p1() {
+        let trunctation = Truncation::Ceiling;
+        let precision = Precision::P1;
+        assert_eq!(0.0, trunctation.prepare(0.0, &precision));
+        assert_eq!(0.1, trunctation.prepare(0.011, &precision));
+        assert_eq!(0.1, trunctation.prepare(0.1, &precision));
+        assert_eq!(0.2, trunctation.prepare(0.11, &precision));
+    }
+
+    #[test]
+    fn floor_p2() {
+        let trunctation = Truncation::Floor;
+        let precision = Precision::P2;
+        assert_eq!(0.0, trunctation.prepare(0.0, &precision));
+        assert_eq!(0.0, trunctation.prepare(0.009, &precision));
+        assert_eq!(0.01, trunctation.prepare(0.01, &precision));
+        assert_eq!(0.01, trunctation.prepare(0.019, &precision));
+    }
+
+    #[test]
+    fn ceiling_p2() {
+        let trunctation = Truncation::Ceiling;
+        let precision = Precision::P2;
+        assert_eq!(0.0, trunctation.prepare(0.0, &precision));
+        assert_eq!(0.01, trunctation.prepare(0.0011, &precision));
+        assert_eq!(0.01, trunctation.prepare(0.01, &precision));
+        assert_eq!(0.02, trunctation.prepare(0.011, &precision));
+    }
+
+    #[test]
+    fn floor_p3() {
+        let trunctation = Truncation::Floor;
+        let precision = Precision::P3;
+        assert_eq!(0.0, trunctation.prepare(0.0, &precision));
+        assert_eq!(0.0, trunctation.prepare(0.0009, &precision));
+        assert_eq!(0.001, trunctation.prepare(0.001, &precision));
+        assert_eq!(0.001, trunctation.prepare(0.0019, &precision));
+    }
+
+    #[test]
+    fn ceiling_p3() {
+        let trunctation = Truncation::Ceiling;
+        let precision = Precision::P3;
+        assert_eq!(0.0, trunctation.prepare(0.0, &precision));
+        assert_eq!(0.001, trunctation.prepare(0.00011, &precision));
+        assert_eq!(0.001, trunctation.prepare(0.001, &precision));
+        assert_eq!(0.002, trunctation.prepare(0.0011, &precision));
+    }
+
 }
