@@ -3,7 +3,16 @@ name = "jobrog"
 version = "0.1.0"
 authors = ["dfhoughton <dfhoughton@gmail.com>"]
 description = "command line job clock"
+homepage="https://github.com/dfhoughton/jobrog"
+repository="https://github.com/dfhoughton/jobrog"
+readme="README.md"
+keywords=["work", "log", "time", "notes"]
+categories=["command-line-utilities"]
+license="GPL-2.0"
 edition = "2018"
+
+[profile.release]
+panic="abort"
 
 [[bin]]
 name = "job"
