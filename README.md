@@ -65,6 +65,7 @@ The typical things one does with job log are
 * summarize a period to enter it into some other time tracking system
 
 Here is the complete list (`job help`):
+
     testing 0.1.0
     dfhoughton <dfhoughton@gmail.com>
     command line job clock
