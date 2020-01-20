@@ -4,7 +4,9 @@ extern crate clap;
 extern crate larry;
 extern crate pidgin;
 extern crate regex;
-use crate::util::log_path;
+extern crate serde_json;
+use crate::configure::Configuration;
+use crate::util::{duration_string, log_path};
 use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, Timelike};
 use clap::ArgMatches;
 use larry::Larry;
@@ -1584,6 +1586,21 @@ impl Event {
         }
         ret
     }
+    pub fn to_json(&self, now: &NaiveDateTime, conf: &Configuration) -> String {
+        let end = if let Some(time) = self.end {
+            serde_json::to_string(&format!("{}", time)).unwrap()
+        } else {
+            "null".to_owned()
+        };
+        format!(
+            r#"{{"type":"Event","start":{},"end":{},"duration":{},"tags":{},"description":{}}}"#,
+            serde_json::to_string(&format!("{}", self.start)).unwrap(),
+            end,
+            duration_string(self.duration(now), conf),
+            serde_json::to_string(&self.tags).unwrap(),
+            serde_json::to_string(&self.description).unwrap()
+        )
+    }
 }
 
 impl Searchable for Event {
@@ -1611,6 +1628,14 @@ impl Note {
             description: description,
             tags: tags,
         }
+    }
+    pub fn to_json(&self, _now: &NaiveDateTime, _conf: &Configuration) -> String {
+        format!(
+            r#"{{"type":"Note","time":{},"tags":{},"description":{}}}"#,
+            serde_json::to_string(&format!("{}", self.time)).unwrap(),
+            serde_json::to_string(&self.tags).unwrap(),
+            serde_json::to_string(&self.description).unwrap()
+        )
     }
 }
 

@@ -88,15 +88,21 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
         Arg::with_name("date")
         .long("date")
         .short("d")
-        .help("the time expression as an option rather than an argument")
+        .help("Receives the time expression as an option rather than an argument")
         .long_help("If you are frequently reviewing the tasks done in a particular pay period, filtering them by tag, say, it may be convenient for the date not to be at the end of the command line -- better to add filters here. In this case you can use the --date option.")
         .validator(|v| if parsable(&v) {Ok(())} else {Err(format!("cannot parse '{}' as a time expression", v))} )
         .value_name("phrase")
     ).arg(
         Arg::with_name("no-merge")
         .long("no-merge")
-        .help("don't merge contiguous events with the same tags")
+        .help("Doesn't merge contiguous events with the same tags")
         .long_help("By default contiguous events with the same tags are displayed as a single event with the sub-events' descriptions joined with '; '. --no-merge prevents this.")
+    ).arg(
+        Arg::with_name("json")
+        .long("json")
+        .short("j")
+        .help("Returns summarized events/notes as a list of line-delimited JSON objects")
+        .long_help("Should you wish to feed summarized results into some other service this provides easily parsed output.")
     ))
 }
 
@@ -118,6 +124,7 @@ pub fn run(matches: &ArgMatches) {
     }
     if let Ok((start, end, _)) = parse(&phrase, configuration.two_timer_config()) {
         let mut reader = LogController::new(None).expect("could not read log");
+        let now = Local::now().naive_local();
         if let Some(time) = reader.first_timestamp() {
             // narrow the range in to just the dates from the beginning of the lot to the present
             // so that we don't have spurious vacation times
@@ -126,21 +133,27 @@ pub fn run(matches: &ArgMatches) {
             } else {
                 start
             };
-            let time = Local::now().naive_local().date().and_hms(0, 0, 0) + Duration::days(1);
+            let time = now.date().and_hms(0, 0, 0) + Duration::days(1);
             let end = if end > time { time } else { end };
 
             let filter = Filter::new(matches);
             check_for_ongoing_event(&mut reader, &configuration);
             if matches.is_present("notes") {
-                let note: Vec<Note> = reader
+                let notes: Vec<Note> = reader
                     .notes_in_range(&start, &end)
                     .into_iter()
                     .filter(|n| filter.matches(n))
                     .collect();
-                if note.is_empty() {
+                if notes.is_empty() {
                     warn("no note found", &configuration)
                 } else {
-                    display_notes(note, &start, &end, &configuration);
+                    if matches.is_present("json") {
+                        for n in notes {
+                            println!("{}", n.to_json(&now, &configuration));
+                        }
+                    } else {
+                        display_notes(notes, &start, &end, &configuration);
+                    }
                 }
             } else {
                 let events = reader
@@ -164,7 +177,13 @@ pub fn run(matches: &ArgMatches) {
                 if events.is_empty() {
                     warn("no event found", &configuration)
                 } else {
-                    display_events(events, &start, &end, &configuration);
+                    if matches.is_present("json") {
+                        for e in events {
+                            println!("{}", e.to_json(&now, &configuration));
+                        }
+                    } else {
+                        display_events(events, &start, &end, &configuration);
+                    }
                 }
             }
         } else {

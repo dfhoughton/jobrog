@@ -174,7 +174,7 @@ fn time_string(this_time: &Option<NaiveDateTime>, last_time: &Option<NaiveDateTi
     }
 }
 
-fn duration_string(duration: f32, conf: &Configuration) -> String {
+pub fn duration_string(duration: f32, conf: &Configuration) -> String {
     format!(
         "{0:.1$}",
         conf.truncation

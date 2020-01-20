@@ -150,3 +150,11 @@ Here is the complete list (`job help`):
     
     This version of job is a Rust implementation: https://github.com/dfhoughton/jobrog. The original implementation was in
     Perl: https://metacpan.org/pod/App::JobLog.
+
+## Installation
+
+At the moment the only mechanism is
+
+    cargo install jobrog
+
+I will add a homebrew tap shortly.
