@@ -48,15 +48,16 @@ and added a line to `~/.joblog/log` which looks like
 
     2020  1 10  8 55 27:e o:email
 
-Job log lets one manage a log of one's activities as a log file, which is to say, a timestamp, some metadata, and a description of
+Job log lets one manage a log of one's activities as a log file. A log line consists of a timestamp, some metadata, and a description of
 the current event.
 
 There are many alternatives to JobLog. One can use [Harvest](https://www.getharvest.com/), for instance. The advantages of JobLog
 over these alternatives are
 * your data is on your own machine; it is your own file; you can keep it across changes of employer
 * if live on the command line, or typically have one handy, the mental context switch, and manual dexterity, is less when one changes tasks; one simply tabs to the command line and types `job a new thing I'm doing`
+* it doesn't need and internet connection
 * job log is blazingly fast
-* job log keeps random notes for your as well as events using the same framework as you use for work tasks; this sometimes is helpful
+* job log keeps random notes for you as well as events; this sometimes is helpful
 
 The typical things one does with job log are
 * register a change of task
@@ -158,3 +159,27 @@ At the moment the only mechanism is
     cargo install jobrog
 
 I will add a homebrew tap shortly.
+
+## Changes from App::JobLog
+
+For the most part the features of jobrog are a superset of those of [App::JobLog](https://metacpan.org/pod/App::JobLog).
+There are some differences, though:
+
+* You can mark when repeating vacation intervals go into effect or become inactive. If you use this feature however, or if
+you add a new repeating vacation interval, your vacation file will no longer be readable by App::JobLog. This feature adds two
+colon-delimited timestamps to the end of the relevant line. This is the only breaking change I know of.
+* There is optional color!
+* There is a `first` subcommand parallel to `last`.
+* The `today` subcommand has been subsumed into `summary`, which now has "today" as its default period.
+* There are fewer compression options for the `truncate` subcommand in the interest of simplicity.
+* The filtering options for summaries behave somewhat differently and are, for me, more useful.
+* You can round up, round down, or "round center" the durations for lawyer-billing, saint-billing, and ordinary-shmoe-billing modes.
+* You can configure jobrog to use fractional hour precision, like quarter and half.
+* You can obtain summaries as line-delimited JSON as well as tabulated text.
+* The merging and display of summary information is considerably less configurable.
+
+## Why Rewrite App::JobLog?
+
+* Everyone's doing it!
+* Rust is fun!
+* My Perl skills were in little demand and thus becoming rusty.
