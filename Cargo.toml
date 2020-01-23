@@ -1,6 +1,6 @@
 [package]
 name = "jobrog"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["dfhoughton <dfhoughton@gmail.com>"]
 description = "command line job clock"
 homepage="https://github.com/dfhoughton/jobrog"

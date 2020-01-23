@@ -155,8 +155,10 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
                 Arg::with_name("precision")
                 .long("precision")
                 .help("Sets decimal places of precision in display of time; default value: 2")
-                .long_help("The number of decimal places of precision used in the display of lengths of periods in numbers of hours. If the number is 0, probably not what you want, all periods will be rounded to a whole number of hours. The default value is 2. If the precision is 'quarter' times will be rounded to the quarter hour for display.")
-                .possible_values(&["0", "1", "2", "3", "quarter"])
+                .long_help("The number of decimal places of precision used in the display of lengths of periods in numbers of hours. \
+                If the number is 0, probably not what you want, all periods will be rounded to a whole number of hours. \
+                The default value is 2. If the precision is a fraction like 'quarter' times will be rounded to the closest fraction that size of the hour for display.")
+                .possible_values(&["0", "1", "2", "3", "half", "third", "quarter", "sixth", "twelfth", "sixtieth"])
                 .value_name("int")
             )
             .arg(
@@ -604,22 +606,18 @@ impl Truncation {
     pub fn prepare(&self, n: f32, precision: &Precision) -> f32 {
         match self {
             Truncation::Round => match precision {
-                Precision::Quarter => (n * 4.0).round() / 4.0,
-                _ => n, // the rest will be taken care of by the formatter
+                // these ones will be taken care of by the formatter
+                Precision::P0 | Precision::P1 | Precision::P2 | Precision::P3 => n,
+                _ => (n * precision.multiplier()).round() / precision.multiplier(),
             },
             _ => {
-                let mut n = n;
-                let multiplicand: f32 = match precision {
-                    Precision::Quarter => 4.0,
-                    _ => (10.0 as f32).powf(precision.precision() as f32),
-                };
-                n *= multiplicand;
+                let mut n = n * precision.multiplier();
                 n = match self {
                     Truncation::Ceiling => n.ceil(),
                     Truncation::Floor => n.floor(),
                     _ => unreachable!(),
                 };
-                n / multiplicand
+                n / precision.multiplier()
             }
         }
     }
@@ -650,7 +648,12 @@ pub enum Precision {
     P1,
     P2,
     P3,
+    Half,
+    Third,
     Quarter,
+    Sixth,
+    Twelfth,
+    Sixtieth,
 }
 
 impl Precision {
@@ -660,7 +663,12 @@ impl Precision {
             Precision::P1 => "1",
             Precision::P2 => "2",
             Precision::P3 => "3",
+            Precision::Half => "half",
+            Precision::Third => "third",
             Precision::Quarter => "quarter",
+            Precision::Sixth => "sixth",
+            Precision::Twelfth => "twelfth",
+            Precision::Sixtieth => "sixtieth",
         }
     }
     fn from_s(s: &str) -> Precision {
@@ -669,8 +677,27 @@ impl Precision {
             "1" => Precision::P1,
             "2" => Precision::P2,
             "3" => Precision::P3,
+            "half" => Precision::Half,
+            "third" => Precision::Third,
             "quarter" => Precision::Quarter,
+            "sixth" => Precision::Sixth,
+            "twelfth" => Precision::Twelfth,
+            "sixtieth" => Precision::Sixtieth,
             _ => unreachable!(),
+        }
+    }
+    pub fn multiplier(&self) -> f32 {
+        match self {
+            Precision::P0 => 1.0,
+            Precision::P1 => 10.0,
+            Precision::P2 => 100.0,
+            Precision::P3 => 1000.0,
+            Precision::Half => 2.0,
+            Precision::Third => 3.0,
+            Precision::Quarter => 4.0,
+            Precision::Sixth => 6.0,
+            Precision::Twelfth => 12.0,
+            Precision::Sixtieth => 60.0,
         }
     }
     pub fn precision(&self) -> usize {
@@ -679,7 +706,8 @@ impl Precision {
             Precision::P1 => 1,
             Precision::P2 => 2,
             Precision::P3 => 3,
-            Precision::Quarter => 2,
+            Precision::Half => 1,
+            _ => 2,
         }
     }
 }
@@ -703,8 +731,28 @@ impl PartialEq for Precision {
                 Precision::P3 => true,
                 _ => false,
             },
+            Precision::Half => match other {
+                Precision::Half => true,
+                _ => false,
+            },
+            Precision::Third => match other {
+                Precision::Third => true,
+                _ => false,
+            },
             Precision::Quarter => match other {
                 Precision::Quarter => true,
+                _ => false,
+            },
+            Precision::Sixth => match other {
+                Precision::Sixth => true,
+                _ => false,
+            },
+            Precision::Twelfth => match other {
+                Precision::Twelfth => true,
+                _ => false,
+            },
+            Precision::Sixtieth => match other {
+                Precision::Sixtieth => true,
                 _ => false,
             },
         }
@@ -1075,5 +1123,4 @@ mod tests {
         assert_eq!(0.001, trunctation.prepare(0.001, &precision));
         assert_eq!(0.002, trunctation.prepare(0.0011, &precision));
     }
-
 }
