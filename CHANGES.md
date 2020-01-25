@@ -1,6 +1,6 @@
 # Change Log
 
-## 0.1.3
+## 0.1.3 *2020-1-25*
 * added success message type
 * fix editing-to-add-DONE bug
 * fixed backup deletion bug
