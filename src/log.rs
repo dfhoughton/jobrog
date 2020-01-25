@@ -359,6 +359,10 @@ impl LogController {
         writeln!(log, "{}", &item.to_line()).expect(error_message);
         (item, self.larry.len())
     }
+    // iterator over all items, first to last
+    pub fn items(&self) -> ItemsAfter {
+        ItemsAfter::new(0, &self.path)
+    }
 }
 
 pub struct ItemsBefore<'a> {

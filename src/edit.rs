@@ -3,7 +3,7 @@ extern crate clap;
 
 use crate::configure::Configuration;
 use crate::log::{parse_line, timestamp, Item, LogController};
-use crate::util::{base_dir, fatal, log_path, warn};
+use crate::util::{base_dir, fatal, log_path, success, warn};
 use chrono::{Local, NaiveDateTime};
 use clap::{App, Arg, ArgMatches, SubCommand};
 use std::fs::{copy, File};
@@ -15,7 +15,8 @@ use std::str::FromStr;
 const BUFFER_SIZE: usize = 16 * 1024;
 
 fn after_help() -> &'static str {
-    "Sometimes you will fail to log a change of tasks, fail to log out at the end \
+    "\
+Sometimes you will fail to log a change of tasks, fail to log out at the end \
 of the day, or find you spent more time than is allowed at lunch. In these cases you \
 need to edit the log manually. The edit subcommand will open a text editor for you and \
 validate the changes once you save and close the editor. If it finds any errors, it will \
@@ -37,7 +38,19 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
                 Arg::with_name("validate")
                 .long("validate")
                 .help("Validates the entire log, commenting out invalid lines")
-                .long_help("If you have reason to believe your log has invalid lines -- if, for instance, you edited it without using this subcommand -- you can validate and clean it using --validate.")
+                .long_help("If you have reason to believe your log has invalid lines -- if, \
+                for instance, you edited it without using this subcommand -- \
+                you can validate and clean it using --validate.")
+                .conflicts_with("error-comments")
+            )
+            .arg(
+                Arg::with_name("error-comments")
+                .long("error-comments")
+                .help("Finds comment lines marking errors")
+                .long_help("After validation some lines may be marked as invalid. This means the lines themselves \
+                are converted into comments preceded by comments beginning '# ERROR'. Ideally one \
+                immediately fixes these errors, removing the error markers. --error-comments checks whether any remain.")
+                .conflicts_with("validate")
             )
     )
 }
@@ -46,6 +59,39 @@ pub fn run(matches: &ArgMatches) {
     let conf = Configuration::read(None);
     if matches.is_present("validate") {
         validation_messages(0, 0, &conf, None, None, None);
+    } else if matches.is_present("error-comments") {
+        let mut log = LogController::new(None).expect("could not open log for validation");
+        let mut error_lines: Vec<String> = vec![];
+        for item in log.items() {
+            match item {
+                Item::Comment(line_offset) => {
+                    let line = log
+                        .larry
+                        .get(line_offset)
+                        .expect(&format!("failed to read line {}", line_offset + 1));
+                    if line.starts_with("# ERROR") {
+                        error_lines.push((line_offset + 1).to_string());
+                    }
+                }
+                _ => (),
+            }
+        }
+        if error_lines.is_empty() {
+            success("no error comments found", &conf);
+        } else {
+            if error_lines.len() == 1 {
+                warn(
+                    format!("found an error comment at line {}", error_lines[0]),
+                    &conf,
+                )
+            } else {
+                let list = error_lines.join(", ");
+                warn(
+                    format!("found error comments at these lines: {}", list),
+                    &conf,
+                );
+            }
+        }
     } else {
         if let Some((editor, _)) = conf.effective_editor() {
             let backed_up_backup = backup_backup();
@@ -564,7 +610,6 @@ mod tests {
             validation_path,
         ]);
     }
-
 
     #[test]
     fn test_validation_messages_done_with_offset_error() {
