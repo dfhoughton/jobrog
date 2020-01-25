@@ -214,6 +214,10 @@ impl LogController {
         }
         None
     }
+    // just returns iterator from a given offset forward -- needed for validation
+    pub fn items_before(&mut self, offset: usize) -> ItemsBefore {
+        ItemsBefore::new(offset, self)
+    }
     // get the first index-item pair at
     // this moves in reverse from later lines to earlier
     fn get_before(&mut self, i: usize) -> Item {
@@ -357,7 +361,7 @@ impl LogController {
     }
 }
 
-struct ItemsBefore<'a> {
+pub struct ItemsBefore<'a> {
     offset: Option<usize>,
     larry: &'a mut Larry,
 }
@@ -586,11 +590,20 @@ impl Iterator for EventsAfter {
 mod tests {
     use super::*;
     use chrono::Duration;
-    use rand::Rng;
+    use rand::seq::SliceRandom;
+    use rand::{thread_rng, Rng};
     use std::fs::File;
     use std::io::LineWriter;
     use std::ops::AddAssign;
     use std::str::FromStr;
+
+    enum Need {
+        E,
+        N,
+        B,
+        C,
+        Error,
+    }
 
     fn random_tag() -> String {
         let choices = ["foo", "bar", "baz", "plugh", "work", "play", "tedium"];
@@ -620,53 +633,72 @@ mod tests {
         word
     }
 
-    fn random_line(time: &mut NaiveDateTime, open_event: bool, offset: usize) -> Item {
+    fn random_line(
+        time: &mut NaiveDateTime,
+        open_event: bool,
+        offset: usize,
+        need: Option<Need>,
+    ) -> Item {
         let n = rand::thread_rng().gen_range(0, 100);
-        if n < 4 {
-            // blank line
-            Item::Blank(offset)
-        } else if n < 10 {
-            // comment
-            let mut comment = String::from("# ");
-            comment.push_str(&random_text());
-            Item::Comment(offset)
-        } else if n < 11 {
-            // error
-            Item::Error(random_text(), offset)
-        } else if n < 20 {
-            // note
-            time.add_assign(Duration::seconds(rand::thread_rng().gen_range(1, 1000)));
-            Item::Note(
-                Note {
-                    time: time.clone(),
-                    description: random_text(),
-                    tags: random_tags(),
-                },
-                offset,
-            )
+        let need = if let Some(need) = need {
+            need
         } else {
-            time.add_assign(Duration::seconds(rand::thread_rng().gen_range(1, 1000)));
-            if open_event && n < 30 {
-                Item::Done(Done(time.clone()), offset)
+            if n < 4 {
+                Need::B
+            } else if n < 10 {
+                Need::C
+            } else if n < 11 {
+                Need::Error
+            } else if n < 20 {
+                Need::N
             } else {
-                Item::Event(
-                    Event {
-                        start: time.clone(),
-                        start_overlap: false,
-                        end: None,
-                        end_overlap: false,
-                        tags: random_tags(),
+                Need::E
+            }
+        };
+        match need {
+            Need::B => Item::Blank(offset),
+            Need::C => {
+                let mut comment = String::from("# ");
+                comment.push_str(&random_text());
+                Item::Comment(offset)
+            }
+            Need::Error => Item::Error(random_text(), offset),
+            Need::N => {
+                time.add_assign(Duration::seconds(rand::thread_rng().gen_range(1, 1000)));
+                Item::Note(
+                    Note {
+                        time: time.clone(),
                         description: random_text(),
-                        vacation: false,
-                        vacation_type: None,
+                        tags: random_tags(),
                     },
                     offset,
                 )
             }
+            Need::E => {
+                time.add_assign(Duration::seconds(rand::thread_rng().gen_range(1, 1000)));
+                if open_event && n < 30 {
+                    Item::Done(Done(time.clone()), offset)
+                } else {
+                    Item::Event(
+                        Event {
+                            start: time.clone(),
+                            start_overlap: false,
+                            end: None,
+                            end_overlap: false,
+                            tags: random_tags(),
+                            description: random_text(),
+                            vacation: false,
+                            vacation_type: None,
+                        },
+                        offset,
+                    )
+                }
+            }
         }
     }
 
-    fn random_log(length: usize) -> (Vec<Item>, String) {
+    // the need is a set of things you need at least one of in the log
+    fn random_log(length: usize, need: Vec<Need>) -> (Vec<Item>, String) {
         let mut initial_time = NaiveDate::from_ymd(2019, 12, 22).and_hms(9, 39, 30);
         let mut items: Vec<Item> = Vec::with_capacity(length);
         let mut open_event = false;
@@ -680,8 +712,33 @@ mod tests {
         );
         let file = File::create(path.clone()).unwrap();
         let mut file = LineWriter::new(file);
+        let mut need: Vec<(usize, Need)> = if need.is_empty() {
+            vec![]
+        } else {
+            // randomly assign needs to lines
+            let mut indices: Vec<usize> = (0..length).collect();
+            indices.shuffle(&mut thread_rng());
+            let mut need = need;
+            need.shuffle(&mut thread_rng());
+            let mut need = need
+                .into_iter()
+                .map(|n| (indices.remove(0), n))
+                .collect::<Vec<_>>();
+            need.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
+            need
+        };
         for offset in 0..length {
-            let item = random_line(&mut initial_time, open_event, offset);
+            let t = if let Some((i, _)) = need.get(0) {
+                if i == &offset {
+                    let t = need.remove(0).1;
+                    Some(t)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            let item = random_line(&mut initial_time, open_event, offset, t);
             open_event = match item {
                 Item::Done(_, _) => false,
                 Item::Event(_, _) => true,
@@ -745,7 +802,7 @@ mod tests {
 
     #[test]
     fn test_notes_in_range() {
-        let (items, path) = random_log(100);
+        let (items, path) = random_log(100, vec![Need::N, Need::N]);
         let notes = notes(items);
         assert!(notes.len() > 1, "found more than one note");
         let mut log_reader = LogController::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
@@ -772,7 +829,7 @@ mod tests {
 
     #[test]
     fn test_events_in_range() {
-        let (items, path) = random_log(20);
+        let (items, path) = random_log(20, vec![Need::E, Need::E]);
         let events = closed_events(items);
         assert!(events.len() > 1, "found more than one event");
         let mut log_reader = LogController::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
@@ -800,7 +857,7 @@ mod tests {
 
     #[test]
     fn test_notes_from_end() {
-        let (items, path) = random_log(100);
+        let (items, path) = random_log(100, vec![Need::N]);
         let mut notes = notes(items);
         notes.reverse();
         let mut log_reader = LogController::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
@@ -823,7 +880,7 @@ mod tests {
 
     #[test]
     fn test_notes_from_beginning() {
-        let (items, path) = random_log(100);
+        let (items, path) = random_log(103, vec![Need::N]);
         let notes = notes(items);
         let log_reader = LogController::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
         let found_notes = log_reader.notes_from_the_beginning().collect::<Vec<_>>();
@@ -845,7 +902,7 @@ mod tests {
 
     #[test]
     fn test_events_from_end() {
-        let (items, path) = random_log(101);
+        let (items, path) = random_log(107, vec![Need::E]);
         let mut events = closed_events(items);
         events.reverse();
         let mut log_reader = LogController::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
@@ -872,7 +929,7 @@ mod tests {
 
     #[test]
     fn test_events_from_beginning() {
-        let (items, path) = random_log(100);
+        let (items, path) = random_log(100, vec![Need::E]);
         let events = closed_events(items);
         let log_reader = LogController::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
         let found_events = log_reader.events_from_the_beginning().collect::<Vec<_>>();
@@ -897,7 +954,7 @@ mod tests {
     }
 
     fn test_log(length: usize) {
-        let (items, path) = random_log(length);
+        let (items, path) = random_log(length, vec![]);
         if items.is_empty() {
             println!("empty file; skipping...");
         } else {
@@ -1282,7 +1339,7 @@ mod tests {
 
     #[test]
     fn stack_overflow_regression() {
-        let (items, path) = random_log(23);
+        let (items, path) = random_log(23, vec![Need::E, Need::E]);
         let events = closed_events(items);
         assert!(events.len() > 1, "found more than one event");
         let mut log_reader = LogController::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
@@ -1347,7 +1404,7 @@ impl Item {
             _ => None,
         }
     }
-    fn has_time(&self) -> bool {
+    pub fn has_time(&self) -> bool {
         match self {
             Item::Event(_, _) | Item::Note(_, _) | Item::Done(_, _) => true,
             _ => false,

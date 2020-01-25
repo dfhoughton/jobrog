@@ -2,7 +2,7 @@ extern crate chrono;
 extern crate clap;
 
 use crate::configure::Configuration;
-use crate::log::{parse_line, timestamp, Item};
+use crate::log::{parse_line, timestamp, Item, LogController};
 use crate::util::{base_dir, fatal, log_path, warn};
 use chrono::{Local, NaiveDateTime};
 use clap::{App, Arg, ArgMatches, SubCommand};
@@ -91,8 +91,8 @@ fn restore_backup(backed_up_backup: bool) {
 
 // backup the backup if it exists and return whether you did so
 fn backup_backup() -> bool {
-    if log_path().as_path().exists() {
-        copy(log_path(), backup_backup_file()).expect("could not make backup log");
+    if backup(None).as_path().exists() {
+        copy(backup(None), backup_backup_file()).expect("could not make backup log");
         true
     } else {
         false
@@ -202,7 +202,9 @@ fn validation_messages(
             println!("log is valid")
         }
     }
-    std::fs::remove_file(backup_backup_file()).expect("could not remove backup backup file");
+    if backup_backup_file().as_path().exists() {
+        std::fs::remove_file(backup_backup_file()).expect("could not remove backup backup file");
+    }
     std::fs::remove_file(validation_file(validation_file_name))
         .expect("could not remove validation file");
 }
@@ -239,12 +241,17 @@ fn validate(
     }
     // now start validating
     let mut buffer = String::new();
-    let mut last_timestamp: Option<NaiveDateTime> = None;
+    let mut seen_done = false;
     let mut line_number = starting_line;
     let mut first_error = 0;
     let mut error_count = 0;
     let mut open_task = false;
     let now = now.unwrap_or(Local::now().naive_local());
+    let mut log = LogController::new(Some(log_file(log))).expect("could not open edited log file");
+    let mut last_timestamp = log
+        .items_before(starting_line)
+        .find(|i| i.has_time())
+        .and_then(|i| Some(i.time().unwrap().0.clone()));
     loop {
         let bytes_read = reader.read_line(&mut buffer).expect("could not read line");
         if bytes_read == 0 {
@@ -263,8 +270,24 @@ fn validate(
             }
             Item::Done(d, _) => {
                 if !open_task {
-                    error_message = Some("DONE without preceding event".to_owned());
+                    if seen_done || starting_line == 0 {
+                        error_message = Some("DONE without preceding event".to_owned());
+                    } else {
+                        // look back to see if there are events before the first change
+                        let prev = log.items_before(starting_line).find(|i| match i {
+                            Item::Done(_, _) | Item::Event(_, _) => true,
+                            _ => false,
+                        });
+                        let bad = match prev {
+                            Some(Item::Event(_, _)) | None => false,
+                            _ => true,
+                        };
+                        if bad {
+                            error_message = Some("DONE without preceding event".to_owned());
+                        }
+                    }
                 }
+                seen_done = true;
                 open_task = false;
                 time = Some(d.0);
             }
@@ -326,23 +349,62 @@ fn validate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::log::Done;
-    use crate::log::{Event, LogLine};
+    use crate::log::{Done, Event, LogLine, Note};
     use chrono::{Duration, NaiveDate};
 
-    fn create_log<T: ToString>(disambiguator: &str, lines: &[T]) -> (String, PathBuf) {
+    enum Stub<'a> {
+        E(i64),
+        N(i64),
+        D(i64),
+        C,
+        B,
+        Error(&'a str),
+    }
+
+    impl<'a> Stub<'a> {
+        fn make(&self, base_time: &NaiveDateTime) -> String {
+            match self {
+                Stub::E(duration) => {
+                    let mut event = Event::coin("event".to_owned(), vec![]);
+                    event.start = *base_time + Duration::hours(*duration);
+                    event.to_line()
+                }
+                Stub::N(duration) => {
+                    let mut note = Note::coin("note".to_owned(), vec![]);
+                    note.time = *base_time + Duration::hours(*duration);
+                    note.to_line()
+                }
+                Stub::D(duration) => Done(*base_time + Duration::hours(*duration)).to_line(),
+                Stub::C => "# comment".to_owned(),
+                Stub::B => "".to_owned(),
+                Stub::Error(s) => s.to_string(),
+            }
+        }
+    }
+
+    // returns log name, log path, and byte offsets per line
+    fn create_log(
+        disambiguator: &str,
+        base_time: &NaiveDateTime,
+        lines: &[Stub],
+    ) -> (String, PathBuf, Vec<usize>) {
         let disambiguator = format!("log_{}", disambiguator);
         let log_buffer = PathBuf::from_str(&disambiguator)
             .expect(&format!("could not create log file for {}", disambiguator));
         let file = File::create(log_buffer.as_path())
             .expect("could not open file to receive validation output");
         let mut writer = BufWriter::new(file);
+        let mut offsets = vec![];
+        let mut offset = 0;
+        let newline_length = "\n".len();
         for line in lines {
-            let line = line.to_string();
+            offsets.push(offset.clone());
+            let line = line.make(base_time);
+            offset += line.len() + newline_length;
             writeln!(writer, "{}", line)
                 .expect(&format!("faile to write {} into {}", line, disambiguator));
         }
-        (disambiguator, log_buffer)
+        (disambiguator, log_buffer, offsets)
     }
 
     fn cleanup(files: Vec<PathBuf>) {
@@ -375,9 +437,10 @@ mod tests {
     fn test_find_change_offset_when_no_change() {
         let disambiguator1 = "test_find_change_offset_when_no_change1";
         let disambiguator2 = "test_find_change_offset_when_no_change2";
-        let lines = ["foo", "bar", "baz"];
-        let (n1, log1) = create_log(disambiguator1, &lines);
-        let (n2, log2) = create_log(disambiguator2, &lines);
+        let t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
+        let lines = [Stub::C, Stub::B, Stub::E(1), Stub::N(2), Stub::D(3)];
+        let (n1, log1, _) = create_log(disambiguator1, &t, &lines);
+        let (n2, log2, _) = create_log(disambiguator2, &t, &lines);
         let diff = find_change_offset(Some(&n1), Some(&n2));
         assert!(diff.is_none(), "no difference found");
         cleanup(vec![log1, log2]);
@@ -387,10 +450,11 @@ mod tests {
     fn test_find_change_offset_with_change() {
         let disambiguator1 = "test_find_change_offset_with_change1";
         let disambiguator2 = "test_find_change_offset_with_change2";
-        let (n1, log1) = create_log(disambiguator1, &["foo", "bar", "baz"]);
-        let (n2, log2) = create_log(disambiguator2, &["foo", "bar"]);
+        let t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
+        let lines = [Stub::E(1), Stub::N(2), Stub::D(3)];
+        let (n1, log1, _) = create_log(disambiguator1, &t, &lines);
+        let (n2, log2, _) = create_log(disambiguator2, &t, &lines[0..2]);
         let diff = find_change_offset(Some(&n1), Some(&n2));
-        println!("{:?}", diff);
         assert!(diff.is_some(), "difference found");
         assert_eq!(2, diff.unwrap().1, "difference at third line");
         cleanup(vec![log1, log2]);
@@ -403,20 +467,12 @@ mod tests {
         let validation_path = PathBuf::from_str(&validation).expect("could not make path");
         let conf_path = configuration_path(disambiguator);
         let conf = Configuration::read(Some(conf_path));
-        let mut t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
-        let mut events = vec![];
-        for duration in &[2, 1, 3] {
-            let end_time = t + Duration::hours(*duration as i64);
-            let mut event = Event::coin(format!("event {}", duration), vec![]);
-            event.start = t.clone();
-            event.end = Some(end_time.clone());
-            t = end_time;
-            events.push(event.to_line());
-        }
+        let t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
+        let events = [Stub::E(0), Stub::E(1), Stub::E(2)];
         let now = t + Duration::weeks(1);
-        let (name, buff) = create_log(disambiguator, &events);
+        let (name, buff, _) = create_log(disambiguator, &t, &events);
         let backup_name = format!("{}.bak", disambiguator);
-        let (backup_name, backup_buff) = create_log(&backup_name, &events);
+        let (backup_name, backup_buff, _) = create_log(&backup_name, &t, &events);
         validation_messages(0, 0, &conf, Some(&name), Some(&backup_name), Some(now));
         let lines = lines(&buff);
         assert!(lines.iter().find(|&s| s.contains("ERROR")).is_none());
@@ -435,21 +491,12 @@ mod tests {
         let validation_path = PathBuf::from_str(&validation).expect("could not make path");
         let conf_path = configuration_path(disambiguator);
         let conf = Configuration::read(Some(conf_path));
-        let mut t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
-        let mut events = vec![];
-        for duration in &[2, 1, 3] {
-            let end_time = t + Duration::hours(*duration as i64);
-            let mut event = Event::coin(format!("event {}", duration), vec![]);
-            event.start = t.clone();
-            event.end = Some(end_time.clone());
-            t = end_time;
-            events.push(event.to_line());
-        }
-        events.push("foo".to_owned());
+        let t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
+        let events = [Stub::E(0), Stub::E(1), Stub::E(2), Stub::Error("foo")];
         let now = t + Duration::weeks(1);
-        let (name, buff) = create_log(disambiguator, &events);
+        let (name, buff, _) = create_log(disambiguator, &t, &events);
         let backup_name = format!("{}.bak", disambiguator);
-        let (backup_name, backup_buff) = create_log(&backup_name, &events);
+        let (backup_name, backup_buff, _) = create_log(&backup_name, &t, &events);
         validation_messages(0, 0, &conf, Some(&name), Some(&backup_name), Some(now));
         let lines = lines(&buff);
         assert!(lines.iter().find(|&s| s.contains("ERROR")).is_some());
@@ -469,22 +516,103 @@ mod tests {
         let validation_path = PathBuf::from_str(&validation).expect("could not make path");
         let conf_path = configuration_path(disambiguator);
         let conf = Configuration::read(Some(conf_path));
-        let mut t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
-        let mut events = vec![];
-        for duration in &[2, 1, 3] {
-            let done = Done(t.clone());
-            t = t + Duration::hours(*duration as i64);
-            events.push(done.to_line());
-            println!("foo");
-        }
+        let t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
+        let events = [Stub::D(0), Stub::D(1), Stub::D(2)];
         let now = t + Duration::weeks(1);
-        let (name, buff) = create_log(disambiguator, &events);
+        let (name, buff, _) = create_log(disambiguator, &t, &events);
         let backup_name = format!("{}.bak", disambiguator);
-        let (backup_name, backup_buff) = create_log(&backup_name, &events);
+        let (backup_name, backup_buff, _) = create_log(&backup_name, &t, &events);
         validation_messages(0, 0, &conf, Some(&name), Some(&backup_name), Some(now));
         let lines = lines(&buff);
         assert!(lines.iter().find(|&s| s.contains("ERROR")).is_some());
         assert!(lines[0].contains("DONE without preceding event"));
+        cleanup(vec![
+            buff,
+            backup_buff,
+            configuration_path(disambiguator),
+            validation_path,
+        ]);
+    }
+
+    #[test]
+    fn test_validation_messages_done_with_offset() {
+        let disambiguator = "test_validation_messages_done_with_offset";
+        let validation = format!("validation_{}", disambiguator);
+        let validation_path = PathBuf::from_str(&validation).expect("could not make path");
+        let conf_path = configuration_path(disambiguator);
+        let conf = Configuration::read(Some(conf_path));
+        let t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
+        let events = [Stub::E(0), Stub::D(1), Stub::E(2)];
+        let now = t + Duration::weeks(1);
+        let (name, buff, offsets) = create_log(disambiguator, &t, &events);
+        let backup_name = format!("{}.bak", disambiguator);
+        let (backup_name, backup_buff, _) = create_log(&backup_name, &t, &events);
+        validation_messages(
+            offsets[1],
+            1,
+            &conf,
+            Some(&name),
+            Some(&backup_name),
+            Some(now),
+        );
+        let lines = lines(&buff);
+        assert!(lines.iter().find(|&s| s.contains("ERROR")).is_none());
+        cleanup(vec![
+            buff,
+            backup_buff,
+            configuration_path(disambiguator),
+            validation_path,
+        ]);
+    }
+
+
+    #[test]
+    fn test_validation_messages_done_with_offset_error() {
+        let disambiguator = "test_validation_messages_done_with_offset_error";
+        let validation = format!("validation_{}", disambiguator);
+        let validation_path = PathBuf::from_str(&validation).expect("could not make path");
+        let conf_path = configuration_path(disambiguator);
+        let conf = Configuration::read(Some(conf_path));
+        let t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
+        let events = [Stub::E(1), Stub::D(0), Stub::E(2)];
+        let now = t + Duration::weeks(1);
+        let (name, buff, offsets) = create_log(disambiguator, &t, &events);
+        let backup_name = format!("{}.bak", disambiguator);
+        let (backup_name, backup_buff, _) = create_log(&backup_name, &t, &events);
+        validation_messages(
+            offsets[1],
+            1,
+            &conf,
+            Some(&name),
+            Some(&backup_name),
+            Some(now),
+        );
+        let lines = lines(&buff);
+        assert!(lines.iter().find(|&s| s.contains("ERROR")).is_some());
+        cleanup(vec![
+            buff,
+            backup_buff,
+            configuration_path(disambiguator),
+            validation_path,
+        ]);
+    }
+
+    #[test]
+    fn test_validation_messages_done_after_done() {
+        let disambiguator = "test_validation_messages_done_after_done";
+        let validation = format!("validation_{}", disambiguator);
+        let validation_path = PathBuf::from_str(&validation).expect("could not make path");
+        let conf_path = configuration_path(disambiguator);
+        let conf = Configuration::read(Some(conf_path));
+        let t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
+        let events = [Stub::E(0), Stub::D(1), Stub::D(2)];
+        let now = t + Duration::weeks(1);
+        let (name, buff, _) = create_log(disambiguator, &t, &events);
+        let backup_name = format!("{}.bak", disambiguator);
+        let (backup_name, backup_buff, _) = create_log(&backup_name, &t, &events);
+        validation_messages(0, 0, &conf, Some(&name), Some(&backup_name), Some(now));
+        let lines = lines(&buff);
+        assert!(lines.iter().find(|&s| s.contains("ERROR")).is_some());
         cleanup(vec![
             buff,
             backup_buff,
@@ -500,28 +628,48 @@ mod tests {
         let validation_path = PathBuf::from_str(&validation).expect("could not make path");
         let conf_path = configuration_path(disambiguator);
         let conf = Configuration::read(Some(conf_path));
-        let mut t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
-        let mut events = vec![];
-        for duration in &[2, 1, 3] {
-            let end_time = t + Duration::hours(*duration as i64);
-            let mut event = Event::coin(format!("event {}", duration), vec![]);
-            event.start = t.clone();
-            event.end = Some(end_time.clone());
-            t = end_time;
-            events.push(event.to_line());
-        }
-        let e1 = events[1].clone();
-        let e2 = events[2].clone();
-        events[1] = e2;
-        events[2] = e1;
+        let t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
+        let events = [Stub::E(1), Stub::E(0), Stub::E(2)];
         let now = t + Duration::weeks(1);
-        let (name, buff) = create_log(disambiguator, &events);
+        let (name, buff, _) = create_log(disambiguator, &t, &events);
         let backup_name = format!("{}.bak", disambiguator);
-        let (backup_name, backup_buff) = create_log(&backup_name, &events);
+        let (backup_name, backup_buff, _) = create_log(&backup_name, &t, &events);
         validation_messages(0, 0, &conf, Some(&name), Some(&backup_name), Some(now));
         let lines = lines(&buff);
         assert!(lines.iter().find(|&s| s.contains("ERROR")).is_some());
-        assert!(lines[2].contains("timestamp out of order with earlier timestamp"));
+        assert!(lines[1].contains("timestamp out of order with earlier timestamp"));
+        cleanup(vec![
+            buff,
+            backup_buff,
+            configuration_path(disambiguator),
+            validation_path,
+        ]);
+    }
+
+    #[test]
+    fn test_events_out_of_order_with_offset() {
+        let disambiguator = "test_events_out_of_order_with_offset";
+        let validation = format!("validation_{}", disambiguator);
+        let validation_path = PathBuf::from_str(&validation).expect("could not make path");
+        let conf_path = configuration_path(disambiguator);
+        let conf = Configuration::read(Some(conf_path));
+        let t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
+        let events = [Stub::E(1), Stub::E(0), Stub::E(2)];
+        let now = t + Duration::weeks(1);
+        let (name, buff, offsets) = create_log(disambiguator, &t, &events);
+        let backup_name = format!("{}.bak", disambiguator);
+        let (backup_name, backup_buff, _) = create_log(&backup_name, &t, &events);
+        validation_messages(
+            offsets[1],
+            1,
+            &conf,
+            Some(&name),
+            Some(&backup_name),
+            Some(now),
+        );
+        let lines = lines(&buff);
+        assert!(lines.iter().find(|&s| s.contains("ERROR")).is_some());
+        assert!(lines[1].contains("timestamp out of order with earlier timestamp"));
         cleanup(vec![
             buff,
             backup_buff,
@@ -537,20 +685,12 @@ mod tests {
         let validation_path = PathBuf::from_str(&validation).expect("could not make path");
         let conf_path = configuration_path(disambiguator);
         let conf = Configuration::read(Some(conf_path));
-        let mut t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
+        let t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
         let now = t - Duration::weeks(1);
-        let mut events = vec![];
-        for duration in &[2, 1, 3] {
-            let end_time = t + Duration::hours(*duration as i64);
-            let mut event = Event::coin(format!("event {}", duration), vec![]);
-            event.start = t.clone();
-            event.end = Some(end_time.clone());
-            t = end_time;
-            events.push(event.to_line());
-        }
-        let (name, buff) = create_log(disambiguator, &events);
+        let events = [Stub::E(0), Stub::E(1), Stub::E(2)];
+        let (name, buff, _) = create_log(disambiguator, &t, &events);
         let backup_name = format!("{}.bak", disambiguator);
-        let (backup_name, backup_buff) = create_log(&backup_name, &events);
+        let (backup_name, backup_buff, _) = create_log(&backup_name, &t, &events);
         validation_messages(0, 0, &conf, Some(&name), Some(&backup_name), Some(now));
         let lines = lines(&buff);
         assert!(lines.iter().find(|&s| s.contains("ERROR")).is_some());

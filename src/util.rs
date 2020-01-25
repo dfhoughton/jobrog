@@ -368,6 +368,11 @@ pub fn display_events(
     }
 }
 
+pub fn success<T: ToString>(msg: T, conf: &Configuration) {
+    let style = Style::new(&conf);
+    eprintln!("{} {}", style.green("ok:"), msg.to_string());
+}
+
 pub fn warn<T: ToString>(msg: T, conf: &Configuration) {
     let style = Style::new(&conf);
     eprintln!("{} {}", style.purple("warning:"), msg.to_string());
