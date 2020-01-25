@@ -6,7 +6,7 @@ extern crate two_timer;
 use crate::configure::Configuration;
 use crate::log::LogController;
 use crate::util::remainder;
-use crate::util::{base_dir, fatal, log_path, warn, yes_or_no};
+use crate::util::{base_dir, fatal, log_path, success, warn, yes_or_no};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -155,7 +155,10 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                 &log_path(conf.directory()),
             )
             .expect("failed to copy new log file into place");
-            println!("saved truncated portion of log to {}", filename);
+            success(
+                format!("saved truncated portion of log to {}", filename),
+                &conf,
+            );
         } else {
             warn(
                 format!(

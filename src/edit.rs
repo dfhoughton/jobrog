@@ -108,7 +108,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                 {
                     validation_messages(offset, line_number, &conf, None, None, None);
                 } else {
-                    println!("no change found in log file; deleting backup...");
+                    success("no change found in log file; deleting backup...", &conf);
                     restore_backup(backed_up_backup, conf.directory());
                 }
             } else {
@@ -264,7 +264,7 @@ fn validation_messages(
         .expect("could not copy validation file to log");
     } else {
         if !testing {
-            println!("log is valid")
+            success("log is valid", conf);
         }
     }
     if backup_backup_file(conf.directory()).as_path().exists() {

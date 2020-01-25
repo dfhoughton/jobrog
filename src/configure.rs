@@ -6,7 +6,7 @@ extern crate regex;
 extern crate term_size;
 extern crate two_timer;
 
-use crate::util::{base_dir, warn, Style};
+use crate::util::{base_dir, success, warn, Style};
 use chrono::{Datelike, NaiveDate};
 use clap::{App, Arg, ArgMatches, SubCommand};
 use colonnade::{Alignment, Colonnade};
@@ -290,7 +290,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
             if v == conf.sunday_begins_week {
                 warn(format!("sunday-begins-week is already {}!", v), &conf);
             } else {
-                println!("setting sunday-begins-week to {}!", v);
+                success(format!("setting sunday-begins-week to {}!", v), &conf);
                 conf.sunday_begins_week = v;
                 write = true;
             }
@@ -300,8 +300,9 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
         did_something = true;
         if let Some(v) = matches.value_of("color") {
             let v: bool = v.parse().unwrap();
-            println!("setting color to {}!", v);
             conf.color = Some(v);
+            // demonstrate that we've set the color
+            success(format!("set color to {}!", v), &conf);
             write = true;
         }
     }
@@ -312,7 +313,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
             if v == conf.length_pay_period {
                 warn(format!("length-pay-period is already {}!", v), &conf);
             } else {
-                println!("setting length-pay-period to {}!", v);
+                success(format!("setting length-pay-period to {}!", v), &conf);
                 conf.length_pay_period = v;
                 write = true;
             }
@@ -336,7 +337,10 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                 &conf,
             );
         } else {
-            println!("setting beginning-work-day to {}:{:02}!", hour, minute);
+            success(
+                format!("setting beginning-work-day to {}:{:02}!", hour, minute),
+                &conf,
+            );
             conf.beginning_work_day = beginning_work_day;
             write = true;
         }
@@ -348,7 +352,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
             if v == conf.day_length {
                 warn(format!("day-length is already {}!", v), &conf);
             } else {
-                println!("setting day-length to {}!", v);
+                success(format!("setting day-length to {}!", v), &conf);
                 conf.day_length = v;
                 write = true;
             }
@@ -361,7 +365,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
             if v == conf.precision {
                 warn(format!("precision is already {}!", v.to_s()), &conf);
             } else {
-                println!("setting precision to {}!", v.to_s());
+                success(format!("setting precision to {}!", v.to_s()), &conf);
                 conf.precision = v;
                 write = true;
             }
@@ -374,7 +378,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
             if v == conf.truncation {
                 warn(format!("truncation is already {}!", v.to_s()), &conf);
             } else {
-                println!("setting truncation to {}!", v.to_s());
+                success(format!("setting truncation to {}!", v.to_s()), &conf);
                 conf.truncation = v;
                 write = true;
             }
@@ -386,7 +390,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
             if v == &conf.serialize_workdays() {
                 warn(format!("workdays is already {}!", v), &conf);
             } else {
-                println!("setting workdays to {}!", v);
+                success(format!("setting workdays to {}!", v), &conf);
                 conf.workdays(v);
                 write = true;
             }
@@ -397,7 +401,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
         if conf.editor.is_some() && v == conf.editor.as_ref().unwrap() {
             warn(format!("editor is already {}!", v), &conf);
         } else {
-            println!("setting editor to {}!", v);
+            success(format!("setting editor to {}!", v), &conf);
             conf.editor(v);
             write = true;
         }
@@ -408,7 +412,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
         if conf.max_width.is_some() && v == conf.max_width.unwrap() {
             warn(format!("max-width is already {}!", v), &conf);
         } else {
-            println!("setting max-width to {}!", v);
+            success(format!("setting max-width to {}!", v), &conf);
             conf.max_width = Some(v);
             write = true;
         }
@@ -461,7 +465,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                 &_ => set = false,
             }
             if set {
-                println!("unset {}", v);
+                success(format!("unset {}", v), &conf);
             } else {
                 warn(format!("unknown configuration parameter!: {}", v), &conf);
             }

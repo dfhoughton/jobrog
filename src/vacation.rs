@@ -7,7 +7,7 @@ extern crate two_timer;
 
 use crate::configure::Configuration;
 use crate::log::{parse_tags, parse_timestamp, tags, timestamp, Event, Filter};
-use crate::util::{base_dir, fatal, remainder, some_nws, warn, Style};
+use crate::util::{base_dir, fatal, remainder, some_nws, success, warn, Style};
 use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, Timelike};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use colonnade::{Alignment, Colonnade};
@@ -292,7 +292,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
             .unwrap_or("today");
         let (date, _, _) = parse(date, conf.two_timer_config()).unwrap();
         match controller.set_over_as_of(index, &date) {
-            Ok(s) => println!("{}", s),
+            Ok(s) => success(s, &conf),
             Err(s) => fatal(s, &conf),
         }
     } else if matches.is_present("effective-as-of") {
@@ -306,7 +306,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
             .unwrap_or("today");
         let (date, _, _) = parse(date, conf.two_timer_config()).unwrap();
         match controller.set_effective_as_of(index, &date) {
-            Ok(s) => println!("{}", s),
+            Ok(s) => success(s, &conf),
             Err(s) => fatal(s, &conf),
         }
     } else if matches.is_present("delete") || matches.is_present("clear") {
@@ -356,7 +356,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
         rows.reverse();
         for row in rows {
             match controller.destroy(row) {
-                Ok(v) => println!("deleted {}", v.describe()),
+                Ok(v) => success(format!("deleted {}", v.describe()), &conf),
                 Err(e) => fatal(e, &conf),
             }
         }
@@ -379,7 +379,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                 matches.value_of("repeats"),
             );
             if recorded {
-                println!("added {}", description);
+                success(format!("added {}", description), &conf);
             } else {
                 fatal(description, &conf)
             }
