@@ -13,6 +13,7 @@ use colonnade::{Alignment, Colonnade};
 use ini::Ini;
 use regex::Regex;
 use std::env;
+use std::fs::File;
 use std::path::PathBuf;
 use two_timer::{parsable, parse, Config};
 
@@ -255,10 +256,10 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
     )
 }
 
-pub fn run(matches: &ArgMatches) {
+pub fn run(directory: Option<&str>, matches: &ArgMatches) {
     let mut did_something = false;
     let mut write = false;
-    let mut conf = Configuration::read(None);
+    let mut conf = Configuration::read(None, directory);
     if let Some(v) = matches.value_of("start-pay-period") {
         did_something = true;
         let tt_conf = Config::new()
@@ -773,6 +774,7 @@ pub struct Configuration {
     pub workdays: u8, // bit flags
     pub max_width: Option<usize>,
     ini: Option<Ini>,
+    dir: String,
 }
 
 impl Configuration {
@@ -794,8 +796,26 @@ impl Configuration {
         }
     }
     // option parameter facilitates testing
-    pub fn read(path: Option<PathBuf>) -> Configuration {
-        let path = path.unwrap_or(Configuration::config_file());
+    pub fn read(path: Option<PathBuf>, directory: Option<&str>) -> Configuration {
+        let path = path.unwrap_or(Configuration::config_file(directory));
+        if !path.as_path().exists() {
+            File::create(path.to_str().unwrap()).expect(&format!(
+                "could not create configuration file {}",
+                path.to_str().unwrap()
+            ));
+        }
+        let directory = path
+            .as_path()
+            .canonicalize()
+            .expect(&format!(
+                "could not canonicalize the path {}",
+                path.as_path().to_str().unwrap()
+            ))
+            .parent()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_owned();
         if let Ok(ini) = Ini::load_from_file(path.as_path()) {
             let editor = if let Some(s) = ini.get_from(Some("external"), "editor") {
                 Some(String::from(s))
@@ -862,6 +882,7 @@ impl Configuration {
                     .get_from(Some("summary"), "max-width")
                     .and_then(|s| Some(s.parse().unwrap())),
                 ini: Some(ini),
+                dir: directory,
             }
         } else {
             Configuration {
@@ -877,6 +898,7 @@ impl Configuration {
                 sunday_begins_week: SUNDAY_BEGINS_WEEK == "true",
                 workdays: Configuration::parse_workdays(WORKDAYS),
                 max_width: None,
+                dir: directory,
             }
         }
     }
@@ -933,7 +955,11 @@ impl Configuration {
             ini.with_section(Some("summary"))
                 .set("max-width", format!("{}", self.max_width.unwrap()));
         }
-        ini.write_to_file(Configuration::config_file()).unwrap();
+        ini.write_to_file(Configuration::config_file(Some(&self.dir)))
+            .unwrap();
+    }
+    pub fn directory(&self) -> Option<&str> {
+        Some(&self.dir)
     }
     // public for testing purposes
     pub fn workdays(&mut self, workdays: &str) {
@@ -971,8 +997,8 @@ impl Configuration {
             }
         }
     }
-    pub fn config_file() -> PathBuf {
-        let mut path = base_dir();
+    pub fn config_file(directory: Option<&str>) -> PathBuf {
+        let mut path = base_dir(directory);
         path.push("config.ini");
         path
     }

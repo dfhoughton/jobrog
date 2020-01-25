@@ -57,13 +57,13 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
     )
 }
 
-pub fn run(matches: &ArgMatches) {
+pub fn run(directory: Option<&str>, matches: &ArgMatches) {
     let no_commas = matches.is_present("raw-numbers");
-    let conf = Configuration::read(None);
+    let conf = Configuration::read(None, directory);
     let mut colonnade =
         Colonnade::new(2, conf.width()).expect("could not build the statistics table");
     colonnade.columns[1].alignment(Alignment::Right);
-    let items = ItemsAfter::new(0, log_path().as_path().to_str().unwrap());
+    let items = ItemsAfter::new(0, log_path(conf.directory()).as_path().to_str().unwrap());
     let mut line_count = 0;
     let mut event_count = 0;
     let mut note_count = 0;

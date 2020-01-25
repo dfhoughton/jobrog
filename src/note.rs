@@ -62,9 +62,9 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
     )
 }
 
-pub fn run(matches: &ArgMatches) {
-    let mut reader = LogController::new(None).expect("could not read log");
-    let conf = Configuration::read(None);
+pub fn run(directory: Option<&str>, matches: &ArgMatches) {
+    let conf = Configuration::read(None, directory);
+    let mut reader = LogController::new(None, &conf).expect("could not read log");
     check_for_ongoing_event(&mut reader, &conf);
     let description = remainder("note", matches);
     let mut tags: Vec<String> = if let Some(values) = matches.values_of("tag") {

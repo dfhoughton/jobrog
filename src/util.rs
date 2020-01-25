@@ -17,6 +17,8 @@ use std::collections::BTreeMap;
 use std::fs::{create_dir, File};
 use std::io;
 use std::io::Write;
+use std::path::PathBuf;
+use std::str::FromStr;
 
 const ONGOING: &str = "ongoing";
 
@@ -148,14 +150,18 @@ pub fn remainder(argname: &str, matches: &ArgMatches) -> std::string::String {
         .join(" ")
 }
 
-pub fn base_dir() -> std::path::PathBuf {
-    let mut dir = home_dir().unwrap();
-    dir.push(".joblog");
-    dir
+pub fn base_dir(directory: Option<&str>) -> std::path::PathBuf {
+    if let Some(dir) = directory {
+        PathBuf::from_str(dir).expect(&format!("could not treat {} as a file path", dir))
+    } else {
+        let mut dir = home_dir().unwrap();
+        dir.push(".joblog");
+        dir
+    }
 }
 
-pub fn log_path() -> std::path::PathBuf {
-    let mut dir = base_dir();
+pub fn log_path(directory: Option<&str>) -> std::path::PathBuf {
+    let mut dir = base_dir(directory);
     dir.push("log");
     dir
 }
@@ -375,7 +381,11 @@ pub fn success<T: ToString>(msg: T, conf: &Configuration) {
 
 pub fn warn<T: ToString>(msg: T, conf: &Configuration) {
     let style = Style::new(&conf);
-    eprintln!("{} {}", style.bold(style.purple("warning:")), msg.to_string());
+    eprintln!(
+        "{} {}",
+        style.bold(style.purple("warning:")),
+        msg.to_string()
+    );
 }
 
 pub fn fatal<T: ToString>(msg: T, conf: &Configuration) {
@@ -439,28 +449,38 @@ pub fn check_for_ongoing_event(reader: &mut LogController, conf: &Configuration)
         let start = &last_event.start.clone();
         let now = Local::now().naive_local();
         let event = Event::gather_by_day(vec![last_event], &now);
-        let configuration = Configuration::read(None);
-        display_events(event, start, &now, &configuration);
+        display_events(event, start, &now, conf);
         println!();
     }
 }
 
 // make sure base directory and its files are present
-pub fn init() {
-    if !base_dir().as_path().exists() {
-        create_dir(base_dir().to_str().unwrap()).expect("could not create base directory");
+pub fn init(directory: Option<&str>) {
+    if !base_dir(directory).as_path().exists() {
+        create_dir(base_dir(directory).to_str().unwrap()).expect(&format!(
+            "could not create base directory {}",
+            base_dir(directory).to_str().unwrap()
+        ));
+        let hidden = base_dir(directory)
+            .as_path()
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with(".");
         println!(
-            "initialized hidden directory {} for Job Log",
-            base_dir().to_str().unwrap()
+            "initialized {}directory {} for Job Log",
+            if hidden { "hidden " } else { "" },
+            base_dir(directory).to_str().unwrap()
         );
     }
-    if !log_path().as_path().exists() {
+    if !log_path(directory).as_path().exists() {
         let mut log =
-            File::create(log_path().to_str().unwrap()).expect("could not create log file");
+            File::create(log_path(directory).to_str().unwrap()).expect("could not create log file");
         log.write_all(b"# job log\n")
             .expect("could not write comment to log file");
     }
-    let mut readme_path = base_dir();
+    let mut readme_path = base_dir(directory);
     readme_path.push("README");
     if !readme_path.as_path().exists() {
         let mut readme =

@@ -106,10 +106,10 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
     ))
 }
 
-pub fn run(matches: &ArgMatches) {
+pub fn run(directory: Option<&str>, matches: &ArgMatches) {
     let mut phrase = remainder("period", matches);
     let date = matches.value_of("date").unwrap_or(&phrase);
-    let configuration = Configuration::read(None);
+    let conf = Configuration::read(None, directory);
     if let Some(expression) = matches.value_of("date") {
         if phrase != "today" {
             warn(
@@ -117,13 +117,13 @@ pub fn run(matches: &ArgMatches) {
                     "--date option '{}' is overriding '{}' as a time expression",
                     date, phrase
                 ),
-                &configuration,
+                &conf,
             );
         }
         phrase = expression.to_owned();
     }
-    if let Ok((start, end, _)) = parse(&phrase, configuration.two_timer_config()) {
-        let mut reader = LogController::new(None).expect("could not read log");
+    if let Ok((start, end, _)) = parse(&phrase, conf.two_timer_config()) {
+        let mut reader = LogController::new(None, &conf).expect("could not read log");
         let now = Local::now().naive_local();
         if let Some(time) = reader.first_timestamp() {
             // narrow the range in to just the dates from the beginning of the lot to the present
@@ -137,7 +137,7 @@ pub fn run(matches: &ArgMatches) {
             let end = if end > time { time } else { end };
 
             let filter = Filter::new(matches);
-            check_for_ongoing_event(&mut reader, &configuration);
+            check_for_ongoing_event(&mut reader, &conf);
             if matches.is_present("notes") {
                 let notes: Vec<Note> = reader
                     .notes_in_range(&start, &end)
@@ -145,14 +145,14 @@ pub fn run(matches: &ArgMatches) {
                     .filter(|n| filter.matches(n))
                     .collect();
                 if notes.is_empty() {
-                    warn("no note found", &configuration)
+                    warn("no note found", &conf)
                 } else {
                     if matches.is_present("json") {
                         for n in notes {
-                            println!("{}", n.to_json(&now, &configuration));
+                            println!("{}", n.to_json(&now, &conf));
                         }
                     } else {
-                        display_notes(notes, &start, &end, &configuration);
+                        display_notes(notes, &start, &end, &conf);
                     }
                 }
             } else {
@@ -166,37 +166,31 @@ pub fn run(matches: &ArgMatches) {
                 } else {
                     Event::gather_by_day_and_merge(events, &end)
                 };
-                let events = VacationController::read(None).add_vacation_times(
-                    &start,
-                    &end,
-                    events,
-                    &configuration,
-                    None,
-                    &filter,
-                );
+                let events = VacationController::read(None, conf.directory())
+                    .add_vacation_times(&start, &end, events, &conf, None, &filter);
                 if events.is_empty() {
-                    warn("no event found", &configuration)
+                    warn("no event found", &conf)
                 } else {
                     if matches.is_present("json") {
                         for e in events {
-                            println!("{}", e.to_json(&now, &configuration));
+                            println!("{}", e.to_json(&now, &conf));
                         }
                     } else {
-                        display_events(events, &start, &end, &configuration);
+                        display_events(events, &start, &end, &conf);
                     }
                 }
             }
         } else {
             if matches.is_present("notes") {
-                warn("no note found", &configuration)
+                warn("no note found", &conf)
             } else {
-                warn("no event found", &configuration)
+                warn("no event found", &conf)
             }
         }
     } else {
         fatal(
             format!("could not parse '{}' as a time expression", phrase),
-            &configuration,
+            &conf,
         )
     }
 }

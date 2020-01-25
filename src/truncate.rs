@@ -57,19 +57,19 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
     )
 }
 
-pub fn run(matches: &ArgMatches) {
+pub fn run(directory: Option<&str>, matches: &ArgMatches) {
     let time_expression = remainder("date", matches);
-    let conf = Configuration::read(None);
+    let conf = Configuration::read(None, directory);
     if parsable(&time_expression) {
         let (t, _, _) = parse(&time_expression, conf.two_timer_config()).unwrap();
-        let mut log = LogController::new(None).expect("could not read the log file");
+        let mut log = LogController::new(None, &conf).expect("could not read the log file");
         if let Some(item) = log.find_line(&t) {
             let filename = format!("log.head-to-{}", t);
             let mut filename = filename.as_str().replace(" ", "_").to_owned();
             if matches.is_present("gzip") {
                 filename += ".gz";
             }
-            let mut path = base_dir();
+            let mut path = base_dir(conf.directory());
             path.push(&filename);
             if path.as_path().exists() {
                 let overwrite = yes_or_no(format!(
@@ -80,10 +80,10 @@ pub fn run(matches: &ArgMatches) {
                     fatal("could not truncate log", &conf);
                 }
             }
-            if temp_log_path().as_path().exists() {
+            if temp_log_path(conf.directory()).as_path().exists() {
                 let overwrite = yes_or_no(format!(
                     "the temporary log file {} already exists; overwrite?",
-                    temp_log_path().to_str().unwrap()
+                    temp_log_path(conf.directory()).to_str().unwrap()
                 ));
                 if !overwrite {
                     fatal("could not truncate log", &conf);
@@ -91,7 +91,8 @@ pub fn run(matches: &ArgMatches) {
             }
             let offset = log.larry.offset(item.offset()).unwrap() as usize;
             let mut bytes_read = 0;
-            let original_file = File::open(log_path()).expect("cannot open log file for reading");
+            let original_file =
+                File::open(log_path(conf.directory())).expect("cannot open log file for reading");
             let mut reader = BufReader::new(original_file);
             let head_file =
                 File::create(path).expect(&format!("could not open {} for writing", filename));
@@ -135,8 +136,8 @@ pub fn run(matches: &ArgMatches) {
                 }
                 head_writer.flush().expect("failed to close head file");
             }
-            let tail_file =
-                File::create(temp_log_path()).expect("could not open log.tmp for writing");
+            let tail_file = File::create(temp_log_path(conf.directory()))
+                .expect("could not open log.tmp for writing");
             let mut tail_writer = BufWriter::new(tail_file);
             loop {
                 let mut buffer: Vec<u8> = vec![0; BUFFER_SIZE];
@@ -149,8 +150,11 @@ pub fn run(matches: &ArgMatches) {
                     .write_all(&buffer)
                     .expect("failed to write to log.tmp");
             }
-            std::fs::rename(&temp_log_path(), &log_path())
-                .expect("failed to copy new log file into place");
+            std::fs::rename(
+                &temp_log_path(conf.directory()),
+                &log_path(conf.directory()),
+            )
+            .expect("failed to copy new log file into place");
             println!("saved truncated portion of log to {}", filename);
         } else {
             warn(
@@ -169,8 +173,8 @@ pub fn run(matches: &ArgMatches) {
     }
 }
 
-fn temp_log_path() -> std::path::PathBuf {
-    let mut path = base_dir();
+fn temp_log_path(directory: Option<&str>) -> std::path::PathBuf {
+    let mut path = base_dir(directory);
     path.push("log.tmp");
     path
 }

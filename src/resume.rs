@@ -35,10 +35,10 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
     ))
 }
 
-pub fn run(matches: &ArgMatches) {
+pub fn run(directory: Option<&str>, matches: &ArgMatches) {
     let filter = Filter::new(matches);
-    let mut reader = LogController::new(None).expect("could not read log");
-    let conf = Configuration::read(None);
+    let conf = Configuration::read(None, directory);
+    let mut reader = LogController::new(None, &conf).expect("could not read log");
     check_for_ongoing_event(&mut reader, &conf);
     let event: Vec<Event> = reader
         .events_from_the_end()

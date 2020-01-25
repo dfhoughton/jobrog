@@ -93,8 +93,11 @@ pub struct LogController {
 }
 
 impl LogController {
-    pub fn new(log: Option<PathBuf>) -> Result<LogController, std::io::Error> {
-        let log = log.unwrap_or(log_path());
+    pub fn new(
+        log: Option<PathBuf>,
+        conf: &Configuration,
+    ) -> Result<LogController, std::io::Error> {
+        let log = log.unwrap_or(log_path(conf.directory()));
         let path = log.as_path().to_str();
         Larry::new(log.as_path()).and_then(|log| {
             Ok(LogController {
@@ -702,7 +705,7 @@ mod tests {
     }
 
     // the need is a set of things you need at least one of in the log
-    fn random_log(length: usize, need: Vec<Need>) -> (Vec<Item>, String) {
+    fn random_log(length: usize, need: Vec<Need>, disambiguator: &str) -> (Vec<Item>, String) {
         let mut initial_time = NaiveDate::from_ymd(2019, 12, 22).and_hms(9, 39, 30);
         let mut items: Vec<Item> = Vec::with_capacity(length);
         let mut open_event = false;
@@ -710,7 +713,8 @@ mod tests {
         // have the files handy to look at in case of failure
         // this technique seems to suffice
         let path = format!(
-            "test-{}-{}.log",
+            "{}-{}-{}.log",
+            disambiguator,
             length,
             Local::now().naive_local().timestamp_millis()
         );
@@ -804,12 +808,37 @@ mod tests {
         ret
     }
 
+    fn test_configuration(path: &str) -> (String, Configuration) {
+        let conf_path = format!("{}_conf", path);
+        File::create(
+            PathBuf::from_str(&conf_path)
+                .expect(&format!("could not create path {}", conf_path))
+                .as_path(),
+        )
+        .expect(&format!("could not create file {}", conf_path));
+        let pb = PathBuf::from_str(&conf_path)
+            .expect(&format!("could not form path from {}", conf_path));
+        let conf = Configuration::read(Some(pb), None);
+        (conf_path, conf)
+    }
+
+    fn cleanup(paths: &[&str]) {
+        for p in paths {
+            let pb = PathBuf::from_str(p).expect(&format!("cannot form a path from {}", p));
+            if pb.as_path().exists() {
+                std::fs::remove_file(p).expect(&format!("failed to remove {}", p))
+            }
+        }
+    }
+
     #[test]
     fn test_notes_in_range() {
-        let (items, path) = random_log(100, vec![Need::N, Need::N]);
+        let (items, path) = random_log(100, vec![Need::N, Need::N], "test_notes_in_range");
         let notes = notes(items);
         assert!(notes.len() > 1, "found more than one note");
-        let mut log_reader = LogController::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let (conf_path, conf) = test_configuration("test_notes_in_range");
+        let mut log_reader =
+            LogController::new(Some(PathBuf::from_str(&path).unwrap()), &conf).unwrap();
         for i in 0..notes.len() - 1 {
             for j in i..notes.len() {
                 let found_notes = log_reader.notes_in_range(&notes[i].time, &notes[j].time);
@@ -828,15 +857,17 @@ mod tests {
                 }
             }
         }
-        std::fs::remove_file(path).unwrap();
+        cleanup(&[&path, &conf_path]);
     }
 
     #[test]
     fn test_events_in_range() {
-        let (items, path) = random_log(20, vec![Need::E, Need::E]);
+        let (items, path) = random_log(20, vec![Need::E, Need::E], "test_events_in_range");
         let events = closed_events(items);
         assert!(events.len() > 1, "found more than one event");
-        let mut log_reader = LogController::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let (conf_path, conf) = test_configuration("test_events_in_range");
+        let mut log_reader =
+            LogController::new(Some(PathBuf::from_str(&path).unwrap()), &conf).unwrap();
         for i in 0..events.len() - 1 {
             for j in i..events.len() {
                 let found_events = log_reader.events_in_range(&events[i].start, &events[j].start);
@@ -856,15 +887,17 @@ mod tests {
                 }
             }
         }
-        std::fs::remove_file(path).unwrap();
+        cleanup(&[&path, &conf_path]);
     }
 
     #[test]
     fn test_notes_from_end() {
-        let (items, path) = random_log(100, vec![Need::N]);
+        let (items, path) = random_log(100, vec![Need::N], "test_notes_from_end");
         let mut notes = notes(items);
         notes.reverse();
-        let mut log_reader = LogController::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let (conf_path, conf) = test_configuration("test_notes_from_end");
+        let mut log_reader =
+            LogController::new(Some(PathBuf::from_str(&path).unwrap()), &conf).unwrap();
         let found_notes = log_reader.notes_from_the_end().collect::<Vec<_>>();
         assert_eq!(
             notes.len(),
@@ -879,14 +912,16 @@ mod tests {
                 "they have the same text"
             );
         }
-        std::fs::remove_file(path).unwrap();
+        cleanup(&[&path, &conf_path]);
     }
 
     #[test]
     fn test_notes_from_beginning() {
-        let (items, path) = random_log(103, vec![Need::N]);
+        let (items, path) = random_log(103, vec![Need::N], "test_notes_from_beginning");
         let notes = notes(items);
-        let log_reader = LogController::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let (conf_path, conf) = test_configuration("test_notes_from_beginning");
+        let log_reader =
+            LogController::new(Some(PathBuf::from_str(&path).unwrap()), &conf).unwrap();
         let found_notes = log_reader.notes_from_the_beginning().collect::<Vec<_>>();
         assert_eq!(
             notes.len(),
@@ -901,15 +936,17 @@ mod tests {
                 "they have the same text"
             );
         }
-        std::fs::remove_file(path).unwrap();
+        cleanup(&[&path, &conf_path]);
     }
 
     #[test]
     fn test_events_from_end() {
-        let (items, path) = random_log(107, vec![Need::E]);
+        let (items, path) = random_log(107, vec![Need::E], "test_events_from_end");
         let mut events = closed_events(items);
         events.reverse();
-        let mut log_reader = LogController::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let (conf_path, conf) = test_configuration("test_events_from_end");
+        let mut log_reader =
+            LogController::new(Some(PathBuf::from_str(&path).unwrap()), &conf).unwrap();
         let found_events = log_reader.events_from_the_end().collect::<Vec<_>>();
         assert_eq!(
             events.len(),
@@ -928,14 +965,16 @@ mod tests {
                 "they have the same description"
             );
         }
-        std::fs::remove_file(path).unwrap();
+        cleanup(&[&path, &conf_path]);
     }
 
     #[test]
     fn test_events_from_beginning() {
-        let (items, path) = random_log(100, vec![Need::E]);
+        let (items, path) = random_log(100, vec![Need::E], "test_events_from_beginning");
         let events = closed_events(items);
-        let log_reader = LogController::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let (conf_path, conf) = test_configuration("test_events_from_beginning");
+        let log_reader =
+            LogController::new(Some(PathBuf::from_str(&path).unwrap()), &conf).unwrap();
         let found_events = log_reader.events_from_the_beginning().collect::<Vec<_>>();
         assert_eq!(
             events.len(),
@@ -954,16 +993,17 @@ mod tests {
                 "they have the same description"
             );
         }
-        std::fs::remove_file(path).unwrap();
+        cleanup(&[&path, &conf_path]);
     }
 
-    fn test_log(length: usize) {
-        let (items, path) = random_log(length, vec![]);
+    fn test_log(length: usize, disambiguator: &str) {
+        let (items, path) = random_log(length, vec![], disambiguator);
         if items.is_empty() {
             println!("empty file; skipping...");
         } else {
+            let (conf_path, conf) = test_configuration(&path);
             let mut log_reader =
-                LogController::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+                LogController::new(Some(PathBuf::from_str(&path).unwrap()), &conf).unwrap();
             let mut last_timed_item: Option<Item> = None;
             for item in items {
                 let (time, offset) = item.time().unwrap();
@@ -990,33 +1030,34 @@ mod tests {
                 } else {
                     assert!(false, format!("could not find item at offset {}", offset));
                 }
+                cleanup(&[&conf_path]);
             }
         }
-        std::fs::remove_file(path).unwrap();
+        cleanup(&[&path]);
     }
 
     #[test]
     fn test_empty_file() {
-        test_log(0);
+        test_log(0, "test_empty_file");
     }
 
     #[test]
     fn test_100_tiny_files() {
-        for _ in 0..100 {
-            test_log(5);
+        for i in 0..100 {
+            test_log(5, &format!("test_100_tiny_files_{}", i));
         }
     }
 
     #[test]
     fn test_10_small_files() {
-        for _ in 0..10 {
-            test_log(100);
+        for i in 0..10 {
+            test_log(100, &format!("test_10_small_files_{}", i));
         }
     }
 
     #[test]
     fn test_large_file() {
-        test_log(10000);
+        test_log(10000, "test_large_file");
     }
 
     #[test]
@@ -1343,10 +1384,12 @@ mod tests {
 
     #[test]
     fn stack_overflow_regression() {
-        let (items, path) = random_log(23, vec![Need::E, Need::E]);
+        let (items, path) = random_log(23, vec![Need::E, Need::E], "stack_overflow_regression");
         let events = closed_events(items);
         assert!(events.len() > 1, "found more than one event");
-        let mut log_reader = LogController::new(Some(PathBuf::from_str(&path).unwrap())).unwrap();
+        let (conf_path, conf) = test_configuration("stack_overflow_regression");
+        let mut log_reader =
+            LogController::new(Some(PathBuf::from_str(&path).unwrap()), &conf).unwrap();
         let e = events.first().unwrap();
         let false_start = e.start - Duration::days(1);
         let found_events = log_reader.events_in_range(&false_start, e.end.as_ref().unwrap());
@@ -1358,7 +1401,7 @@ mod tests {
             e.description, found_events[0].description,
             "same description"
         );
-        std::fs::remove_file(path).unwrap();
+        cleanup(&[&path, &conf_path]);
     }
 }
 

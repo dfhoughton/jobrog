@@ -41,21 +41,21 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
                     )
                     .value_name("period")
                     .default_value("today")
-                    .multiple(true)
+                    .multiple(true),
             )
-            .display_order(display_order)
+            .display_order(display_order),
     )
 }
 
-pub fn run(matches: &ArgMatches) {
-    let configuration = Configuration::read(None);
+pub fn run(directory: Option<&str>, matches: &ArgMatches) {
+    let conf = Configuration::read(None, directory);
     let phrase = matches
         .values_of("period")
         .unwrap()
         .collect::<Vec<&str>>()
         .join(" ");
     println!("when: {}", phrase);
-    match parse(&phrase, configuration.two_timer_config()) {
+    match parse(&phrase, conf.two_timer_config()) {
         Ok((start, end, _)) => {
             let now = Local::now().naive_local();
             if now <= start {
@@ -64,7 +64,7 @@ pub fn run(matches: &ArgMatches) {
                         "the current moment, {}, must be after the first moment sought: {}.",
                         now, start
                     ),
-                    &configuration,
+                    &conf,
                 )
             } else if start >= end {
                 fatal(
@@ -72,29 +72,23 @@ pub fn run(matches: &ArgMatches) {
                         "the current moment, {}, must be before the last moment sought: {}.",
                         now, end
                     ),
-                    &configuration,
+                    &conf,
                 )
             } else {
-                let mut reader = LogController::new(None).expect("could not read log");
+                let mut reader = LogController::new(None, &conf).expect("could not read log");
                 let events = reader.events_in_range(&start, &now);
                 let events = Event::gather_by_day(events, &end);
                 let filter = Filter::dummy();
-                let events = VacationController::read(None).add_vacation_times(
-                    &start,
-                    &end,
-                    events,
-                    &configuration,
-                    None,
-                    &filter,
-                );
+                let events = VacationController::read(None, conf.directory())
+                    .add_vacation_times(&start, &end, events, &conf, None, &filter);
                 let mut hours_required = 0.0;
                 let mut seconds_worked = 0.0;
                 let mut last_workday: Option<NaiveDate> = None;
                 for e in events {
                     let date = e.start.date();
-                    if configuration.is_workday(&date) {
+                    if conf.is_workday(&date) {
                         if last_workday.is_none() || last_workday.unwrap() != date {
-                            hours_required += configuration.day_length;
+                            hours_required += conf.day_length;
                             last_workday = Some(date);
                         }
                     }
@@ -115,7 +109,7 @@ pub fn run(matches: &ArgMatches) {
                 }
             }
         }
-        Err(e) => fatal(e.msg(), &configuration),
+        Err(e) => fatal(e.msg(), &conf),
     }
 }
 

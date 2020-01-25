@@ -8,8 +8,9 @@ use chrono::Local;
 use clap::{App, SubCommand};
 
 fn after_help() -> &'static str {
-    "The done subcommand places a DONE timestamp in the job log. This is just a \
-    timestamp followed by a colon and the word 'DONE':
+    "\
+The done subcommand places a DONE timestamp in the job log. This is just a \
+timestamp followed by a colon and the word 'DONE':
 
   2019  1  2 15 04 05:DONE
 
@@ -29,9 +30,9 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
     )
 }
 
-pub fn run() {
-    let mut reader = LogController::new(None).expect("could not read log");
-    let conf = Configuration::read(None);
+pub fn run(directory: Option<&str>) {
+    let conf = Configuration::read(None, directory);
+    let mut reader = LogController::new(None, &conf).expect("could not read log");
     if let Some(event) = reader.last_event() {
         check_for_ongoing_event(&mut reader, &conf);
         if event.ongoing() {

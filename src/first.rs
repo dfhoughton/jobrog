@@ -26,22 +26,20 @@ All prefixes of 'first' are aliases of the subcommand.
 }
 
 pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
-    mast.subcommand(
-        common_search_or_filter_arguments(
-            SubCommand::with_name("first")
-                .aliases(&["f", "fi", "fir", "firs"])
-                .about("Shows the first task recorded")
-                .after_help(after_help())
-                .display_order(display_order),
-                None
-        )
-    )
+    mast.subcommand(common_search_or_filter_arguments(
+        SubCommand::with_name("first")
+            .aliases(&["f", "fi", "fir", "firs"])
+            .about("Shows the first task recorded")
+            .after_help(after_help())
+            .display_order(display_order),
+        None,
+    ))
 }
 
-pub fn run(matches: &ArgMatches) {
+pub fn run(directory: Option<&str>, matches: &ArgMatches) {
     let filter = Filter::new(matches);
-    let reader = LogController::new(None).expect("could not read log");
-    let configuration = Configuration::read(None);
+    let conf = Configuration::read(None, directory);
+    let reader = LogController::new(None, &conf).expect("could not read log");
     if matches.is_present("notes") {
         let note: Vec<Note> = reader
             .notes_from_the_beginning()
@@ -49,11 +47,11 @@ pub fn run(matches: &ArgMatches) {
             .take(1)
             .collect();
         if note.is_empty() {
-            warn("no note found", &configuration)
+            warn("no note found", &conf)
         } else {
             let start = &note[0].time.clone();
             let now = Local::now().naive_local();
-            display_notes(note, start, &now, &configuration);
+            display_notes(note, start, &now, &conf);
         }
     } else {
         let event: Vec<Event> = reader
@@ -62,12 +60,12 @@ pub fn run(matches: &ArgMatches) {
             .take(1)
             .collect();
         if event.is_empty() {
-            warn("no event found", &configuration)
+            warn("no event found", &conf)
         } else {
             let start = &event[0].start.clone();
             let now = Local::now().naive_local();
             let event = Event::gather_by_day(event, &now);
-            display_events(event, start, &now, &configuration);
+            display_events(event, start, &now, &conf);
         }
     }
 }

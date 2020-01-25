@@ -53,8 +53,8 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
     )
 }
 
-pub fn run(matches: &ArgMatches) {
-    let conf = Configuration::read(None);
+pub fn run(directory: Option<&str>, matches: &ArgMatches) {
+    let conf = Configuration::read(None, directory);
     if !matches.is_present("period") {
         fatal("no time expression provided", &conf);
     }
