@@ -291,8 +291,12 @@ pub fn display_events(
             parts
         })
         .collect();
-    let mut event_table = Colonnade::new(6, configuration.width()).unwrap();
-    event_table.priority(0).left_margin(2).unwrap();
+    let mut event_table =
+        Colonnade::new(6, configuration.width()).expect("insufficient space for events table");
+    event_table
+        .priority(0)
+        .left_margin(2)
+        .expect("insufficient space for events table -- setting margin");
     event_table.columns[0].alignment(Alignment::Right);
     event_table.columns[1].left_margin(1);
     event_table.columns[2].left_margin(1);
@@ -300,7 +304,12 @@ pub fn display_events(
     event_table.columns[5].priority(2);
 
     last_date = None;
-    for (offset, row) in event_table.macerate(data).unwrap().iter().enumerate() {
+    for (offset, row) in event_table
+        .macerate(data)
+        .expect("failed to macerate data")
+        .iter()
+        .enumerate()
+    {
         let date = events[offset].start.date();
         if last_date.is_none() || last_date.unwrap() != date {
             println!("{}", style.blue(date_string(&date, same_year)));
@@ -334,7 +343,8 @@ pub fn display_events(
     }
     println!();
 
-    let mut tags_table = Colonnade::new(2, configuration.width()).unwrap();
+    let mut tags_table =
+        Colonnade::new(2, configuration.width()).expect("insufficient space for tags table");
     tags_table.columns[1].alignment(Alignment::Right);
     let mut data = vec![vec![
         String::from("TOTAL HOURS"),
@@ -358,7 +368,12 @@ pub fn display_events(
     for (tag, duration) in durations.iter() {
         data.push(vec![tag.clone(), duration_string(*duration, configuration)]);
     }
-    for (offset, row) in tags_table.macerate(data).unwrap().iter().enumerate() {
+    for (offset, row) in tags_table
+        .macerate(data)
+        .expect("could not macerate tag data")
+        .iter()
+        .enumerate()
+    {
         for line in row {
             for (cell_num, (margin, cell)) in line.iter().enumerate() {
                 // header values are red
