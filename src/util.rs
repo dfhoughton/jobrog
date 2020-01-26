@@ -291,8 +291,6 @@ pub fn display_events(
             parts
         })
         .collect();
-    println!("A");
-    println!("width: {}", conf.width());
     let mut event_table =
         Colonnade::new(6, conf.width()).expect("insufficient space for events table");
     event_table
@@ -305,7 +303,6 @@ pub fn display_events(
     event_table.columns[4].priority(1);
     event_table.columns[5].priority(2);
 
-    println!("B");
     last_date = None;
     for (offset, row) in event_table
         .macerate(data)
@@ -313,7 +310,6 @@ pub fn display_events(
         .iter()
         .enumerate()
     {
-        println!("C: offset: {}; len: {}", offset, events.len());
         let date = events[offset].start.date();
         if last_date.is_none() || last_date.unwrap() != date {
             println!("{}", style.blue(date_string(&date, same_year)));

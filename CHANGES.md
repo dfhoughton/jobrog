@@ -1,5 +1,8 @@
 # Change Log
 
+## 0.1.4 *2020-1-26*
+* fix use of max_termsize so we can test things outside of tty
+* added 'today' alias to the summary subcommand for Paula's sake
 ## 0.1.3 *2020-1-25*
 * added success message type
 * fix editing-to-add-DONE bug

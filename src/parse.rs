@@ -22,6 +22,28 @@ The parse-time subcommand returns the first moment inclusive of the time express
 last moment exclusive and whether the expression explicitly name both the beginning and \
 the end of the range.
 
+Job log uses two grammars to parse time expressions: a simple grammar which it tries first \
+and a more comprehensive grammar, which it falls back to. Here are some useful expressions \
+which are available in the simple grammar:
+
+  yesterday
+  today
+  now
+  pay period
+  pp
+  Friday
+  fri
+  this week
+  last week
+  last month
+  March
+  March 20
+  2016
+  feb - mar
+
+Both grammars are from https://github.com/dfhoughton/two-timer. You can find list of sample \
+expressions at this URL and, in the source code, the actual grammars.
+
 All prefixes of 'parse-time' are aliases of the subcommand.
 "
 }

@@ -51,6 +51,12 @@ and added a line to `~/.joblog/log` which looks like
 Job log lets one manage a log of one's activities as a log file. A log line consists of a timestamp, some metadata, and a description of
 the current event.
 
+## Screencast
+
+[![asciicast](https://asciinema.org/a/rhoSb5wuM7CyGBUk7vG5wmlq7.svg)](https://asciinema.org/a/rhoSb5wuM7CyGBUk7vG5wmlq7)
+
+## Why
+
 There are many alternatives to JobLog. One can use [Harvest](https://www.getharvest.com/), for instance. The advantages of JobLog
 over these alternatives are
 * your data is on your own machine; it is your own file; you can keep it across changes of employer
@@ -58,6 +64,8 @@ over these alternatives are
 * it doesn't need and internet connection
 * job log is blazingly fast
 * job log keeps random notes for you as well as events; this sometimes is helpful
+
+## How
 
 The typical things one does with job log are
 * register a change of task
@@ -183,11 +191,13 @@ job r -t e
 
 ## Installation
 
-At the moment the only mechanism is
+To be ensured the latest version, one needs to use [`cargo`](https://doc.rust-lang.org/cargo/):
 
     cargo install jobrog
 
-I will add a homebrew tap shortly.
+There is also a [homebrew](https://brew.sh/) tap:
+
+    brew install dfhoughton/tap/jobrog
 
 ## Changes from App::JobLog
 

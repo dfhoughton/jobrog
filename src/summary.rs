@@ -35,7 +35,8 @@ in a particular period:
   o           0.75
   sb          7.25
 
-If no time period is provided, the default period is 'today'.
+If no time period is provided, the default period is 'today'. See the parse \
+subcommand for more details about acceptable time expressions.
 
 You can also summarize the notes in a particular period:
 
@@ -59,7 +60,7 @@ which case the time expression is in the way. For this case you can use the --da
 
 The Perl version of Job Log, https://metacpan.org/pod/App::JobLog, provides a today subcommand, which \
 provides a summary of the current day's tasks. Jobrog, the Rust version, lacks this subcommand, but \
-the default time expression is 'today'. Also, the subcommand has a 'to' alias for people whose muscle \
+the default time expression is 'today'. Also, the subcommand has 'to' and 'today' aliases for people whose muscle \
 memory causes them to keep trying to use the today subcommand. As in the Perl version, jobrog provides all \
 unambiguous prefixes of 'summary' as aliases (also, 's', though the statistics subcommand also begins \
 with 's')."
@@ -68,7 +69,7 @@ with 's')."
 pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
     mast.subcommand(common_search_or_filter_arguments(
         SubCommand::with_name("summary")
-            .aliases(&["s", "su", "sum", "summ", "summa", "summar", "to"])
+            .aliases(&["s", "su", "sum", "summ", "summa", "summar", "to", "today"])
             // the last, "to", is there because I'm used to there being a today subcommand which does what summary with no further arguments does in jobrog
             .about("Says when you will have worked all the hours expected within the given period")
             .after_help(after_help())
