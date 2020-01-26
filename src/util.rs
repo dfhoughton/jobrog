@@ -246,9 +246,9 @@ pub fn display_events(
     events: Vec<Event>,
     start: &NaiveDateTime,
     end: &NaiveDateTime,
-    configuration: &Configuration,
+    conf: &Configuration,
 ) {
-    let style = Style::new(configuration);
+    let style = Style::new(conf);
     let mut last_time: Option<NaiveDateTime> = None;
     let mut last_date: Option<NaiveDate> = None;
     let mut durations: BTreeMap<String, f32> = BTreeMap::new();
@@ -275,7 +275,7 @@ pub fn display_events(
             parts.push(time_string(&e.end, &last_time));
             last_time = e.end;
             let duration = e.duration(&now);
-            parts.push(duration_string(duration, configuration));
+            parts.push(duration_string(duration, conf));
             parts.push(e.tags.join(", "));
             for tag in e.tags.iter() {
                 *durations.entry(tag.clone()).or_insert(0.0) += duration;
@@ -291,7 +291,8 @@ pub fn display_events(
             parts
         })
         .collect();
-    println!("A");
+    println!("A");conf
+    println!("width: {}", configuration.width());
     let mut event_table =
         Colonnade::new(6, configuration.width()).expect("insufficient space for events table");
     event_table
@@ -333,29 +334,29 @@ pub fn display_events(
                         if events[offset].vacation {
                             style.purple(cell)
                         } else {
-                            style.green(cell)
+                            style.green(celconf
                         }
                     }
                     4 => style.blue(cell),
-                    _ => cell.to_owned(),
+                    _ => cell.to_owned()conf
                 };
                 print!("{}{}", margin, cell);
             }
             println!();
         }
     }
-    println!();
+    println!();conf
 
     let mut tags_table =
         Colonnade::new(2, configuration.width()).expect("insufficient space for tags table");
     tags_table.columns[1].alignment(Alignment::Right);
     let mut data = vec![vec![
         String::from("TOTAL HOURS"),
-        duration_string(total_duration, configuration),
+        duration_string(total_duration, configuconf
     ]];
     let mut header_count = 1;
     if untagged_duration > 0.0 {
-        header_count += 1;
+        header_count += 1;conf
         data.push(vec![
             String::from("UNTAGGED"),
             duration_string(untagged_duration, configuration),
