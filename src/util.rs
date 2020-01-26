@@ -201,9 +201,9 @@ pub fn display_notes(
     notes: Vec<Note>,
     start: &NaiveDateTime,
     end: &NaiveDateTime,
-    configuration: &Configuration,
+    conf: &Configuration,
 ) {
-    let style = Style::new(configuration);
+    let style = Style::new(conf);
     let same_year = start.year() == end.year();
     let mut last_time: Option<NaiveDateTime> = None;
     let mut last_date: Option<NaiveDate> = None;
@@ -218,7 +218,7 @@ pub fn display_notes(
             parts
         })
         .collect();
-    let mut note_table = Colonnade::new(3, configuration.width()).unwrap();
+    let mut note_table = Colonnade::new(3, conf.width()).unwrap();
     note_table.priority(0).left_margin(2).unwrap();
     note_table.columns[1].priority(1);
     note_table.columns[2].priority(2);
@@ -291,10 +291,10 @@ pub fn display_events(
             parts
         })
         .collect();
-    println!("A");conf
-    println!("width: {}", configuration.width());
+    println!("A");
+    println!("width: {}", conf.width());
     let mut event_table =
-        Colonnade::new(6, configuration.width()).expect("insufficient space for events table");
+        Colonnade::new(6, conf.width()).expect("insufficient space for events table");
     event_table
         .priority(0)
         .left_margin(2)
@@ -334,43 +334,43 @@ pub fn display_events(
                         if events[offset].vacation {
                             style.purple(cell)
                         } else {
-                            style.green(celconf
+                            style.green(cell)
                         }
                     }
                     4 => style.blue(cell),
-                    _ => cell.to_owned()conf
+                    _ => cell.to_owned(),
                 };
                 print!("{}{}", margin, cell);
             }
             println!();
         }
     }
-    println!();conf
+    println!();
 
     let mut tags_table =
-        Colonnade::new(2, configuration.width()).expect("insufficient space for tags table");
+        Colonnade::new(2, conf.width()).expect("insufficient space for tags table");
     tags_table.columns[1].alignment(Alignment::Right);
     let mut data = vec![vec![
         String::from("TOTAL HOURS"),
-        duration_string(total_duration, configuconf
+        duration_string(total_duration, conf),
     ]];
     let mut header_count = 1;
     if untagged_duration > 0.0 {
-        header_count += 1;conf
+        header_count += 1;
         data.push(vec![
             String::from("UNTAGGED"),
-            duration_string(untagged_duration, configuration),
+            duration_string(untagged_duration, conf),
         ])
     }
     if vacation_duration > 0.0 {
         header_count += 1;
         data.push(vec![
             String::from("VACATION"),
-            duration_string(vacation_duration, configuration),
+            duration_string(vacation_duration, conf),
         ])
     }
     for (tag, duration) in durations.iter() {
-        data.push(vec![tag.clone(), duration_string(*duration, configuration)]);
+        data.push(vec![tag.clone(), duration_string(*duration, conf)]);
     }
     for (offset, row) in tags_table
         .macerate(data)
