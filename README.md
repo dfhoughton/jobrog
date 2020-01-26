@@ -53,6 +53,8 @@ the current event.
 
 ## Screencast
 
+You'll need to scroll down once it starts playing.
+
 [![asciicast](https://asciinema.org/a/rhoSb5wuM7CyGBUk7vG5wmlq7.svg)](https://asciinema.org/a/rhoSb5wuM7CyGBUk7vG5wmlq7)
 
 ## Why
