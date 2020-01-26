@@ -783,7 +783,7 @@ pub struct Configuration {
 
 impl Configuration {
     fn max_term_size() -> usize {
-        term_size::dimensions().unwrap().0
+        term_size::dimensions().unwrap_or((80, 0)).0 // if term_size fails us, use a default of 80
     }
     // the minimum of the current terminal width or the configured width, if any
     pub fn width(&self) -> usize {
