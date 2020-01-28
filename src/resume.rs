@@ -52,6 +52,6 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
     } else {
         let (event, offset) =
             reader.append_event(event[0].description.clone(), event[0].tags.clone());
-        describe("starting", Item::Event(event, offset), &conf);
+        describe("resuming", Item::Event(event, offset), &conf);
     }
 }

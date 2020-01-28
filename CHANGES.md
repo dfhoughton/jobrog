@@ -1,5 +1,8 @@
 # Change Log
 
+## 0.1.5
+* changing text emitted by resume subcommand
+* adding vacation information to JSON output of summary subcommand
 ## 0.1.4 *2020-1-26*
 * fix use of max_termsize so we can test things outside of tty
 * added 'today' alias to the summary subcommand for Paula's sake

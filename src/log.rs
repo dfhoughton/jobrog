@@ -1697,10 +1697,15 @@ impl Event {
             "null".to_owned()
         };
         format!(
-            r#"{{"type":"Event","start":{},"end":{},"duration":{},"tags":{},"description":{}}}"#,
+            r#"{{"type":"Event","start":{},"end":{},"duration":{},{}"tags":{},"description":{}}}"#,
             serde_json::to_string(&format!("{}", self.start)).unwrap(),
             end,
             duration_string(self.duration(now), conf),
+            if let Some(t) = &self.vacation_type {
+                format!("\"vacation\":\"{}\",", if t == "" { "ordinary" } else { t })
+            } else {
+                "".to_owned()
+            },
             serde_json::to_string(&self.tags).unwrap(),
             serde_json::to_string(&self.description).unwrap()
         )
