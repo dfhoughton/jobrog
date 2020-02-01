@@ -25,9 +25,11 @@ pub const BEGINNING_WORK_DAY: (usize, usize) = (9, 0);
 pub const WORKDAYS: &str = "MTWHF";
 pub const COLOR: &str = "true";
 pub const TRUNCATION: &str = "round";
+pub const CLOCK: &str = "12";
 
 fn after_help() -> &'static str {
-    "Set or display configuration parameters that control date interpretation, log summarization, etc.
+    "\
+Set or display configuration parameters that control date interpretation, log summarization, etc.
 
   > job configure --list
   precision                quarter
@@ -36,6 +38,7 @@ fn after_help() -> &'static str {
   length-pay-period              7
   start-pay-period       2016 10 3
   sunday-begins-week          true
+  clock                         12
   workdays                   MTWHF
   beginning-work-day          9:00
   day-length                     8
@@ -50,13 +53,12 @@ fn after_help() -> &'static str {
   length-pay-period              7
   start-pay-period       2016 10 3
   sunday-begins-week          true
+  clock                         12
   workdays                   MTWHF
   beginning-work-day          9:00
   day-length                     8
   editor              /usr/bin/vim
   color                       true
-  > job configure --precision quarter
-  setting precision to quarter!
 
 Some configuration may be taken from environment variables -- VISUAL, EDITOR, NO_COLOR. \
 If this is occurring, this will be explained when you list the configuration.
@@ -186,6 +188,13 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
                 .value_name("bool")
             )
             .arg(
+                Arg::with_name("clock")
+                .long("clock")
+                .help("Sets times should be displayed with a 12-hour or a 24-hour clock; default value; 12")
+                .possible_values(&["12", "24"])
+                .value_name("type")
+            )
+            .arg(
                 Arg::with_name("length-pay-period")
                 .long("length-pay-period")
                 .help("Sets the number of days in a pay period; default value: 14")
@@ -292,6 +301,18 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
             } else {
                 success(format!("setting sunday-begins-week to {}!", v), &conf);
                 conf.sunday_begins_week = v;
+                write = true;
+            }
+        }
+    }
+    if matches.is_present("clock") {
+        did_something = true;
+        if let Some(v) = matches.value_of("clock") {
+            if (v == CLOCK) == conf.h12 {
+                warn(format!("clock is already {}!", v), &conf);
+            } else {
+                success(format!("setting clock to {}!", v), &conf);
+                conf.h12 = v == CLOCK;
                 write = true;
             }
         }
@@ -517,6 +538,10 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
             vec![
                 String::from("sunday-begins-week"),
                 format!("{}", conf.sunday_begins_week),
+            ],
+            vec![
+                String::from("clock"),
+                format!("{}", if conf.h12 { "12" } else { "24" }),
             ],
             vec![String::from("workdays"), conf.serialize_workdays()],
             vec![
@@ -779,6 +804,7 @@ pub struct Configuration {
     pub max_width: Option<usize>,
     ini: Option<Ini>,
     dir: String,
+    pub h12: bool,
 }
 
 impl Configuration {
@@ -876,6 +902,7 @@ impl Configuration {
                     "sunday-begins-week",
                     SUNDAY_BEGINS_WEEK,
                 ) == "true",
+                h12: ini.get_from_or(Some("summary"), "clock", CLOCK) == "12",
                 color: color,
                 workdays: Configuration::parse_workdays(ini.get_from_or(
                     Some("time"),
@@ -903,6 +930,7 @@ impl Configuration {
                 workdays: Configuration::parse_workdays(WORKDAYS),
                 max_width: None,
                 dir: directory,
+                h12: CLOCK == "12",
             }
         }
     }
@@ -946,6 +974,10 @@ impl Configuration {
         if self.sunday_begins_week != SUNDAY_BEGINS_WEEK.parse::<bool>().unwrap() {
             ini.with_section(Some("time"))
                 .set("sunday-begins-week", format!("{}", self.sunday_begins_week));
+        }
+        if self.h12 != (CLOCK == "12") {
+            ini.with_section(Some("summary"))
+                .set("clock", format!("{}", if self.h12 { "12" } else { "24" }));
         }
         if let Some(c) = self.color {
             ini.with_section(Some("color"))

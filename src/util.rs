@@ -8,7 +8,7 @@ extern crate regex;
 use crate::configure::Configuration;
 use crate::log::{Event, Item, LogController, Note};
 use ansi_term::Colour::{Black, Blue, Cyan, Green, Purple, Red};
-use chrono::{Datelike, Local, NaiveDate, NaiveDateTime, Timelike};
+use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
 use clap::{App, Arg, ArgMatches};
 use colonnade::{Alignment, Colonnade};
 use dirs::home_dir;
@@ -166,14 +166,9 @@ pub fn log_path(directory: Option<&str>) -> std::path::PathBuf {
     dir
 }
 
-fn time_string(this_time: &Option<NaiveDateTime>, last_time: &Option<NaiveDateTime>) -> String {
+fn time_string(this_time: &Option<NaiveDateTime>, conf: &Configuration) -> String {
     if let Some(this_time) = this_time {
-        let format =
-            if last_time.is_none() || last_time.unwrap().hour() < 13 && this_time.hour() >= 13 {
-                "%l:%M %P"
-            } else {
-                "%l:%M"
-            };
+        let format = if conf.h12 { "%l:%M" } else { "%k:%M" };
         format!("{}", this_time.format(format))
     } else {
         String::from(ONGOING)
@@ -205,14 +200,12 @@ pub fn display_notes(
 ) {
     let style = Style::new(conf);
     let same_year = start.year() == end.year();
-    let mut last_time: Option<NaiveDateTime> = None;
     let mut last_date: Option<NaiveDate> = None;
     let data: Vec<Vec<String>> = notes
         .iter()
         .map(|n| {
             let mut parts = Vec::with_capacity(3);
-            parts.push(time_string(&Some(n.time), &last_time));
-            last_time = Some(n.time);
+            parts.push(time_string(&Some(n.time), conf));
             parts.push(n.tags.join(", "));
             parts.push(n.description.clone());
             parts
@@ -220,6 +213,7 @@ pub fn display_notes(
         .collect();
     let mut note_table = Colonnade::new(3, conf.width()).unwrap();
     note_table.priority(0).left_margin(2).unwrap();
+    note_table.columns[0].alignment(Alignment::Right);
     note_table.columns[1].priority(1);
     note_table.columns[2].priority(2);
 
@@ -249,7 +243,6 @@ pub fn display_events(
     conf: &Configuration,
 ) {
     let style = Style::new(conf);
-    let mut last_time: Option<NaiveDateTime> = None;
     let mut last_date: Option<NaiveDate> = None;
     let mut durations: BTreeMap<String, f32> = BTreeMap::new();
     let mut total_duration = 0.0;
@@ -262,18 +255,15 @@ pub fn display_events(
         .map(|e| {
             if let Some(&date) = last_date.as_ref() {
                 if date != e.start.date() {
-                    last_time = None;
                     last_date = Some(e.start.date());
                 }
             } else {
                 last_date = Some(e.start.date());
             }
             let mut parts = Vec::with_capacity(6);
-            parts.push(time_string(&Some(e.start), &last_time));
+            parts.push(time_string(&Some(e.start), conf));
             parts.push(String::from("-"));
-            last_time = Some(e.start);
-            parts.push(time_string(&e.end, &last_time));
-            last_time = e.end;
+            parts.push(time_string(&e.end, conf));
             let duration = e.duration(&now);
             parts.push(duration_string(duration, conf));
             parts.push(e.tags.join(", "));
@@ -299,7 +289,7 @@ pub fn display_events(
         .expect("insufficient space for events table -- setting margin");
     event_table.columns[0].alignment(Alignment::Right);
     event_table.columns[1].left_margin(1);
-    event_table.columns[2].left_margin(1);
+    event_table.columns[2].left_margin(1).alignment(Alignment::Right);
     event_table.columns[4].priority(1);
     event_table.columns[5].priority(2);
 

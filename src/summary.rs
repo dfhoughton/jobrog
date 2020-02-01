@@ -14,16 +14,17 @@ use clap::{App, Arg, ArgMatches, SubCommand};
 use two_timer::{parsable, parse};
 
 fn after_help() -> &'static str {
-    "The summary subcommand aggregates and displays all the logged events \
+    "\
+The summary subcommand aggregates and displays all the logged events \
 in a particular period:
 
   > job summary yesterday
   Friday, 17 January
-    8:59 am - 9:23     0.50  e, o          email
-       9:23 - 10:40    1.25  2609, cs, sb  Error in approved plugh foo for 14068FY19
-      10:40 - 12:51    2.25  42, mr, sb    Multi-Floob Review Part 1
-      12:51 - 1:10 pm  0.25  l, o          lunch
-       1:10 - 5:03     4.00  42, mr, sb    Multi-Floob Review Part 1
+    8:59 -  9:23  0.50  e, o          email
+    9:23 - 10:40  1.25  2609, cs, sb  Error in approved plugh foo for 14068FY19
+   10:40 - 12:51  2.25  42, mr, sb    Multi-Floob Review Part 1
+   12:51 -  1:10  0.25  l, o          lunch
+    1:10 -  5:03  4.00  42, mr, sb    Multi-Floob Review Part 1
 
   TOTAL HOURS 8.00
   2609        1.25
@@ -42,17 +43,17 @@ You can also summarize the notes in a particular period:
 
   > job s --notes sep 2018
   Thursday, 13 September
-    9:33 am  sb             69cd01b14
-    9:33     sb             3190d979c
-    8:34 pm  sb             http://localhost:3000/managers/plugh_applications/14450FY18/entities
+    9:33  sb             69cd01b14
+    9:33  sb             3190d979c
+    8:34  sb             http://localhost:3000/managers/plugh_applications/14450FY18/entities
   Friday, 14 September
-    12:42    sb             Z923289 Q923525 K923550
+   12:42  sb             Z923289 Q923525 K923550
   Saturday, 15 September
-    10:15    moe, birthday  sketchbook
-    10:15    moe, birthday  hat
-    10:15    moe, birthday  tee-shirt
-    10:15    moe, birthday  mechanical pencils
-    10:15    moe, birthday  nice book
+   10:15  moe, birthday  sketchbook
+   10:15  moe, birthday  hat
+   10:15  moe, birthday  tee-shirt
+   10:15  moe, birthday  mechanical pencils
+   10:15  moe, birthday  nice book
 
 You can provide the time expression as the final arguments, but sometimes you want to filter \
 by tag it's convenient to be able to add tag expressions to the end of the previous command, in \

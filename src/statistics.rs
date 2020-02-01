@@ -3,7 +3,7 @@ extern crate clap;
 extern crate colonnade;
 
 use crate::configure::Configuration;
-use crate::log::{Item, ItemsAfter};
+use crate::log::{Done, Item, ItemsAfter};
 use crate::util::log_path;
 use chrono::NaiveDateTime;
 use clap::{App, Arg, ArgMatches, SubCommand};
@@ -15,14 +15,15 @@ fn after_help() -> &'static str {
 If you want aggregate statistics about your job log, this is your subcommand.
 
   > job statistics
-  lines                            18,731
+  lines                            18,867
   first timestamp     2014-10-06 08:57:29
-  last timestamp      2020-01-17 17:03:46
-  events                           14,419
+  last timestamp      2020-01-31 16:50:22
+  hours clocked                    10,701
+  events                           14,529
   notes                               202
-  distinct event tags               2,326
+  distinct event tags               2,337
   distinct note tags                   17
-  comments                          1,323
+  comments                          1,333
   blank lines                           2
   errors                                0
 
@@ -74,12 +75,17 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
     let mut note_tags: BTreeSet<String> = BTreeSet::new();
     let mut first_timestamp: Option<NaiveDateTime> = None;
     let mut last_timestamp: Option<NaiveDateTime> = None;
+    let mut duration = 0;
+    let mut open_timetamp: Option<NaiveDateTime> = None;
     for item in items {
         line_count += 1;
         if let Some((t, _)) = item.time() {
             last_timestamp = Some(t.clone());
             if first_timestamp.is_none() {
                 first_timestamp = Some(t.clone());
+            }
+            if open_timetamp.is_none() {
+                open_timetamp = Some(t.clone());
             }
         }
         match item {
@@ -97,7 +103,12 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
             }
             Item::Blank(_) => blank_line_count += 1,
             Item::Comment(_) => comment_count += 1,
-            Item::Done(_, _) => (),
+            Item::Done(Done(d), _) => {
+                if let Some(t) = open_timetamp {
+                    duration += (d.timestamp() - t.timestamp()) as usize;
+                }
+                open_timetamp = None;
+            }
             Item::Error(_, _) => error_count += 1,
         }
     }
@@ -118,6 +129,16 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
             } else {
                 String::from("")
             },
+        ],
+        [
+            String::from("hours clocked"),
+            format!(
+                "{}",
+                format_num(
+                    ((duration as f64) / (60.0 * 60.0)).round() as usize,
+                    no_commas
+                )
+            ),
         ],
         [String::from("events"), format_num(event_count, no_commas)],
         [String::from("notes"), format_num(note_count, no_commas)],
