@@ -6,14 +6,14 @@ pub mod first;
 pub mod last;
 pub mod log;
 pub mod note;
+pub mod parse;
 pub mod resume;
+pub mod statistics;
 pub mod summary;
 pub mod truncate;
 pub mod util;
-pub mod when;
 pub mod vacation;
-pub mod parse;
-pub mod statistics;
+pub mod when;
 extern crate clap;
 #[macro_use]
 extern crate pidgin;

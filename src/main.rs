@@ -76,15 +76,17 @@ fn main() {
         .about(crate_description!())
         .arg(
             Arg::with_name("directory")
-            .long("directory")
-            .short("d")
-            .value_name("dir")
-            .help("Looks in this directory for the log rather than ~/.joblog")
-            .long_help("If you need or want to use a directory other than .joblog \
+                .long("directory")
+                .short("d")
+                .value_name("dir")
+                .help("Looks in this directory for the log rather than ~/.joblog")
+                .long_help(
+                    "If you need or want to use a directory other than .joblog \
             in your home directory to store job log's log, vacation file, configuration \
             file, and so forth, specify this alternative directory with --directory. \
-            As with .joblog, if it does not exist it will be created as needed.")
-    );
+            As with .joblog, if it does not exist it will be created as needed.",
+                ),
+        );
     // for determining the listing order
     let order = [
         add::cli,

@@ -1,14 +1,16 @@
 extern crate chrono;
 extern crate clap;
 extern crate colonnade;
+extern crate two_timer;
 
 use crate::configure::Configuration;
-use crate::log::{Done, Item, ItemsAfter};
-use crate::util::log_path;
-use chrono::NaiveDateTime;
-use clap::{App, Arg, ArgMatches, SubCommand};
+use crate::log::{Done, Item, ItemsAfter, LogController};
+use crate::util::{fatal, log_path, remainder};
+use chrono::{Local, NaiveDateTime};
+use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use colonnade::{Alignment, Colonnade};
 use std::collections::BTreeSet;
+use two_timer::parse;
 
 fn after_help() -> &'static str {
     "\
@@ -54,6 +56,16 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
                     .display_order(1),
             )
             .about("Shows overall statistics of the log")
+            .setting(AppSettings::TrailingVarArg)
+            .arg(
+                Arg::with_name("period")
+                    .help("time expression")
+                    .long_help(
+                        "All the <period> arguments are concatenated to produce a time expression.",
+                    )
+                    .value_name("period")
+                    .multiple(true),
+            )
             .display_order(display_order),
     )
 }
@@ -64,7 +76,11 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
     let mut colonnade =
         Colonnade::new(2, conf.width()).expect("could not build the statistics table");
     colonnade.columns[1].alignment(Alignment::Right);
-    let items = ItemsAfter::new(0, log_path(conf.directory()).as_path().to_str().unwrap());
+    let (start_offset, end_time) = where_to_begin(matches, &conf);
+    let items = ItemsAfter::new(
+        start_offset,
+        log_path(conf.directory()).as_path().to_str().unwrap(),
+    );
     let mut line_count = 0;
     let mut event_count = 0;
     let mut note_count = 0;
@@ -78,8 +94,10 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
     let mut duration = 0;
     let mut open_timetamp: Option<NaiveDateTime> = None;
     for item in items {
-        line_count += 1;
         if let Some((t, _)) = item.time() {
+            if t > &end_time {
+                break;
+            }
             last_timestamp = Some(t.clone());
             if first_timestamp.is_none() {
                 first_timestamp = Some(t.clone());
@@ -88,6 +106,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                 open_timetamp = Some(t.clone());
             }
         }
+        line_count += 1;
         match item {
             Item::Event(e, _) => {
                 event_count += 1;
@@ -162,6 +181,33 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
     ];
     for line in colonnade.tabulate(&data).expect("couild not tabulate data") {
         println!("{}", line);
+    }
+}
+
+fn where_to_begin(matches: &ArgMatches, conf: &Configuration) -> (usize, NaiveDateTime) {
+    if matches.is_present("period") {
+        let period = remainder("period", matches);
+        match parse(&period, conf.two_timer_config()) {
+            Ok((t1, t2, _)) => {
+                let mut log =
+                    LogController::new(None, conf).expect("could not open log for reading");
+                if let Some(item) = log.find_line(&t1) {
+                    (item.offset(), t2)
+                } else {
+                    fatal("the log does not cover the period specified", conf);
+                    unreachable!()
+                }
+            }
+            _ => {
+                fatal(
+                    &format!("could not parse {} as a time expression", period),
+                    conf,
+                );
+                unreachable!()
+            }
+        }
+    } else {
+        (0, Local::now().naive_local())
     }
 }
 

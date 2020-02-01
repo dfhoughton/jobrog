@@ -289,7 +289,9 @@ pub fn display_events(
         .expect("insufficient space for events table -- setting margin");
     event_table.columns[0].alignment(Alignment::Right);
     event_table.columns[1].left_margin(1);
-    event_table.columns[2].left_margin(1).alignment(Alignment::Right);
+    event_table.columns[2]
+        .left_margin(1)
+        .alignment(Alignment::Right);
     event_table.columns[4].priority(1);
     event_table.columns[5].priority(2);
 
