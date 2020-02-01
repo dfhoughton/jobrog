@@ -153,22 +153,22 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
             .after_help(after_help())
             // NOTE I'm not using default_value here so we can identify when the user misuses the subcommand and should be prompted
             .arg(
-                Arg::with_name("precision")
+                Arg::with_name("precision") // remember to keep in sync with option in summary
                 .long("precision")
                 .help("Sets decimal places of precision in display of time; default value: 2")
                 .long_help("The number of decimal places of precision used in the display of lengths of periods in numbers of hours. \
                 If the number is 0, probably not what you want, all periods will be rounded to a whole number of hours. \
                 The default value is 2. If the precision is a fraction like 'quarter' times will be rounded to the closest fraction that size of the hour for display.")
                 .possible_values(&["0", "1", "2", "3", "half", "third", "quarter", "sixth", "twelfth", "sixtieth"])
-                .value_name("int")
+                .value_name("precision")
             )
             .arg(
-                Arg::with_name("truncation")
+                Arg::with_name("truncation") // remember to keep in sync with option in summary
                 .long("truncation")
                 .help("Sets how fractional parts of a duration too small to display for the given precision are handled; default value: round")
                 .long_help("When an events duration is displayed, there is generally some amount of information not displayed given the precision. By default this portion is rounded, so if the precision is a quarter hour and the duration is 7.5 minutes, this will be displayed as 0.25 hours. Alternatively, one could use the floor, in which case this would be 0.00 hours, or the ceiling, in which case even a single second task would be shown as taking 0.25 hours.")
                 .possible_values(&["round", "floor", "ceiling"])
-                .value_name("func")
+                .value_name("function")
             )
             .arg(
                 Arg::with_name("start-pay-period")
@@ -1035,6 +1035,12 @@ impl Configuration {
                 .pay_period_start(self.start_pay_period)
                 .pay_period_length(self.length_pay_period),
         )
+    }
+    pub fn set_precision(&mut self, identifier: &str) {
+        self.precision = Precision::from_s(identifier);
+    }
+    pub fn set_truncation(&mut self, identifier: &str) {
+        self.truncation = Truncation::from_s(identifier);
     }
 }
 

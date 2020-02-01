@@ -99,6 +99,23 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
         .help("Doesn't merge contiguous events with the same tags")
         .long_help("By default contiguous events with the same tags are displayed as a single event with the sub-events' descriptions joined with '; '. --no-merge prevents this.")
     ).arg(
+        Arg::with_name("precision")
+        .long("precision")
+        .short("p")
+        .help("Overrides precision in configuration")
+        .long_help("The number of decimal places of precision used in the display of lengths of periods in numbers of hours. \
+        If the number is 0, probably not what you want, all periods will be rounded to a whole number of hours. \
+        The default value is 2. If the precision is a fraction like 'quarter' times will be rounded to the closest fraction that size of the hour for display.")
+        .possible_values(&["0", "1", "2", "3", "half", "third", "quarter", "sixth", "twelfth", "sixtieth"])
+        .value_name("precision")
+    ).arg(
+        Arg::with_name("truncation")
+        .long("truncation")
+        .help("Overrides truncation in configuration")
+        .long_help("When an events duration is displayed, there is generally some amount of information not displayed given the precision. By default this portion is rounded, so if the precision is a quarter hour and the duration is 7.5 minutes, this will be displayed as 0.25 hours. Alternatively, one could use the floor, in which case this would be 0.00 hours, or the ceiling, in which case even a single second task would be shown as taking 0.25 hours.")
+        .possible_values(&["round", "floor", "ceiling"])
+        .value_name("function")
+    ).arg(
         Arg::with_name("json")
         .long("json")
         .short("j")
@@ -110,7 +127,13 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
 pub fn run(directory: Option<&str>, matches: &ArgMatches) {
     let mut phrase = remainder("period", matches);
     let date = matches.value_of("date").unwrap_or(&phrase);
-    let conf = Configuration::read(None, directory);
+    let mut conf = Configuration::read(None, directory);
+    if let Some(identifier) = matches.value_of("precision") {
+        conf.set_precision(identifier);
+    }
+    if let Some(identifier) = matches.value_of("truncation") {
+        conf.set_truncation(identifier);
+    }
     if let Some(expression) = matches.value_of("date") {
         if phrase != "today" {
             warn(
