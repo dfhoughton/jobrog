@@ -1,6 +1,6 @@
 # Change Log
 
-## 0.1.5
+## 0.1.5 *2020-2-1*
 * changing text emitted by resume subcommand
 * adding vacation information to JSON output of summary subcommand
 * adding precision and truncation to summary subcommand
