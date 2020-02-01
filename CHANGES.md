@@ -4,6 +4,7 @@
 * changing text emitted by resume subcommand
 * adding vacation information to JSON output of summary subcommand
 * adding precision and truncation to summary subcommand
+* bumped colonnade version to get better grapheme handling
 ## 0.1.4 *2020-1-26*
 * fix use of max_termsize so we can test things outside of tty
 * added 'today' alias to the summary subcommand for Paula's sake
