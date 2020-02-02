@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.1.6 *2020-2-2*
+* make it so you can unset the clock configuration parameter
+* various documentation fixes
+* fix editor configuration parameter so you can pass arguments
 ## 0.1.5 *2020-2-1*
 * changing text emitted by resume subcommand
 * adding vacation information to JSON output of summary subcommand

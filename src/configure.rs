@@ -168,7 +168,11 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
                 Arg::with_name("truncation") // remember to keep in sync with option in summary
                 .long("truncation")
                 .help("Sets how fractional parts of a duration too small to display for the given precision are handled; default value: round")
-                .long_help("When an events duration is displayed, there is generally some amount of information not displayed given the precision. By default this portion is rounded, so if the precision is a quarter hour and the duration is 7.5 minutes, this will be displayed as 0.25 hours. Alternatively, one could use the floor, in which case this would be 0.00 hours, or the ceiling, in which case even a single second task would be shown as taking 0.25 hours.")
+                .long_help("When an events duration is displayed, there is generally some amount of information not \
+                displayed given the precision. By default this portion is rounded, so if the precision is a quarter \
+                hour and the duration is 7.5 minutes, this will be displayed as 0.25 hours. Alternatively, one could \
+                use the floor, in which case this would be 0.00 hours, or the ceiling, in which case even a single \
+                second task would be shown as taking 0.25 hours.")
                 .possible_values(&["round", "floor", "ceiling"])
                 .value_name("function")
             )
@@ -220,14 +224,20 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
                 .long("workdays")
                 .help("Sets which days you are expected to work; default value: MTWHF")
                 .long_help("Workdays during the week represented as a subset of SMTWHFA, where S is Sunday and A is Saturday, etc. Default value: MTWHF.")
-                .validator(|v| if Regex::new(r"\A[SMTWHFA]+\z").unwrap().is_match(&v) {Ok(())} else {Err(format!("must contain only the letters SMTWHFA, where S means Sunday and A, Saturday, etc."))})
+                .validator(|v| if Regex::new(r"\A[SMTWHFA]+\z").unwrap().is_match(&v) {Ok(())} else {Err(format!("must contain only the letters SMTWHFA, \
+                where S means Sunday and A, Saturday, etc."))})
                 .value_name("days")
             )
             .arg(
                 Arg::with_name("editor")
                 .long("editor")
                 .help("Sets text editor to use when manually editing the log")
-                .long_help("A text editor that the edit command will invoke. E.g., /usr/bin/vim. If no editor is set, job falls back to the environment variables VISUAL and EDITOR in that order. If there is still no editor, you cannot use the edit command to edit the log. Note, whatever editor you use must be invocable from the shell as <editor> <file>.")
+                .long_help("A text editor that the edit command will invoke. E.g., /usr/bin/vim. \
+                If no editor is set, job falls back to the environment variables VISUAL and EDITOR in that order. \
+                If there is still no editor, you cannot use the edit command to edit the log. \
+                Note, whatever editor you use must be invocable from the shell as <editor> <file>. \
+                If you need to pass additional arguments to the executable, provide them delimited by spaces \
+                in the same argument. E.g., --editor='/usr/bin/open -W -n -t'")
                 .value_name("path")
             )
             .arg(
@@ -241,7 +251,9 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
                 Arg::with_name("color")
                 .long("color")
                 .help("Sets whether to use colors; default value: true")
-                .long_help("Color variation helps one parse information quickly, but if you don't want it, or the ANSI color codes that produce it cause you trouble, you can turn it off. If you haven't set this parameter and you don't have the NO_COLOR environment variable, Job Log will use color.")
+                .long_help("Color variation helps one parse information quickly, but if you don't want it, \
+                or the ANSI color codes that produce it cause you trouble, you can turn it off. \
+                If you haven't set this parameter and you don't have the NO_COLOR environment variable, Job Log will use color.")
                 .possible_values(&["true", "false"])
                 .value_name("bool")
             )
@@ -419,7 +431,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
     }
     if let Some(v) = matches.value_of("editor") {
         did_something = true;
-        if conf.editor.is_some() && v == conf.editor.as_ref().unwrap() {
+        if conf.editor.is_some() && v == conf.editor.as_ref().unwrap().join(" ") {
             warn(format!("editor is already {}!", v), &conf);
         } else {
             success(format!("setting editor to {}!", v), &conf);
@@ -453,6 +465,10 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                 }
                 "color" => {
                     conf.color = None;
+                    write = true;
+                }
+                "clock" => {
+                    conf.h12 = "12" == CLOCK;
                     write = true;
                 }
                 "length-pay-period" => {
@@ -554,7 +570,8 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
             vec![String::from("day-length"), format!("{}", conf.day_length)],
             vec![String::from("editor"), {
                 match conf.effective_editor() {
-                    Some((mut editor, source)) => {
+                    Some((editor, source)) => {
+                        let mut editor = editor.join(" ");
                         if let Some(source) = source {
                             for _ in 0..footnotes.len() + 1 {
                                 editor.push_str("*");
@@ -792,7 +809,7 @@ impl PartialEq for Precision {
 #[derive(Clone)]
 pub struct Configuration {
     pub day_length: f32,
-    pub editor: Option<String>,
+    pub editor: Option<Vec<String>>,
     pub length_pay_period: u32,
     pub precision: Precision,
     pub truncation: Truncation,
@@ -848,7 +865,7 @@ impl Configuration {
             .to_owned();
         if let Ok(ini) = Ini::load_from_file(path.as_path()) {
             let editor = if let Some(s) = ini.get_from(Some("external"), "editor") {
-                Some(String::from(s))
+                Some(s.split_whitespace().map(|s| s.to_owned()).collect())
             } else {
                 None
             };
@@ -950,6 +967,7 @@ impl Configuration {
             );
         }
         if let Some(s) = self.editor.as_ref() {
+            let s = s.join(" ");
             ini.with_section(Some("external")).set("editor", s);
         }
         if self.length_pay_period != LENGTH_PAY_PERIOD.parse::<u32>().unwrap() {
@@ -1002,20 +1020,26 @@ impl Configuration {
         self.workdays = Configuration::parse_workdays(workdays);
     }
     fn editor(&mut self, editor: &str) {
-        self.editor = Some(String::from(editor));
+        self.editor = Some(editor.split_whitespace().map(|s| s.to_owned()).collect());
     }
     // returns value and its environment variable source, if any
-    pub fn effective_editor(&self) -> Option<(String, Option<String>)> {
-        if self.editor.is_some() {
-            Some((self.editor.as_ref().unwrap().to_string(), None))
+    pub fn effective_editor(&self) -> Option<(Vec<String>, Option<String>)> {
+        if let Some(vec) = self.editor.clone() {
+            Some((vec, None))
         } else {
             let mut var = String::from("VISUAL");
             match env::var(&var) {
-                Ok(s) => Some((s, Some(var))),
+                Ok(s) => Some((
+                    s.split_whitespace().map(|s| s.to_owned()).collect(),
+                    Some(var),
+                )),
                 _ => {
                     var = String::from("EDITOR");
                     match env::var(&var) {
-                        Ok(s) => Some((s, Some(var))),
+                        Ok(s) => Some((
+                            s.split_whitespace().map(|s| s.to_owned()).collect(),
+                            Some(var),
+                        )),
                         _ => None,
                     }
                 }

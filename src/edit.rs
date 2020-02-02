@@ -94,12 +94,21 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
             }
         }
     } else {
-        if let Some((editor, _)) = conf.effective_editor() {
+        if let Some((mut args, _)) = conf.effective_editor() {
+            let editor = args.remove(0);
+            let mut command = Command::new(&editor);
+            while !args.is_empty() {
+                command.arg(args.remove(0));
+            }
             let backed_up_backup = backup_backup(conf.directory());
             copy(log_path(conf.directory()), backup(None, conf.directory()))
                 .expect("could not make backup log");
-            let status = Command::new(&editor)
-                .arg(log_path(conf.directory()).to_str().unwrap())
+            let status = command
+                .arg(
+                    log_path(conf.directory())
+                        .to_str()
+                        .expect("failed to obtain log path"),
+                )
                 .status()
                 .expect("failed to start editor process");
             if status.success() {

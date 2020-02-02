@@ -8,18 +8,18 @@ report of use in the wild:
 
     > job summary last friday
     Friday, 10 January
-      8:55 am - 9:35     0.75  e, o        email                                                         
-         9:35 - 9:41     0.00  f, o        filing time                                                   
-         9:41 - 10:50    1.25  30, mr, fo  Create booster view which lets you add people to booster      
-        10:50 - 12:15    1.50  10, mr, fo  get multi-tenant S3 attachments to work                       
-        12:15 - 12:16    0.00  c, o        feeding the cat                                               
-        12:16 - 3:46 pm  3.50  10, mr, fo  get multi-tenant S3 attachments to work                       
-         3:46 - 3:50     0.00  29, mr, fo  Make it so the Plugh API is only called for gargamel stuff
-         3:50 - 3:50     0.00  mtg, fo     FO/UPI Monthly Check-In                                       
-         3:50 - 4:01     0.25  29, mr, fo  Make it so the Plugh API is only called for gargamel stuff
-         4:01 - 4:30     0.50  mtg, fo     FO/UPI Monthly Check-In                                       
-         4:30 - 5:01     0.50  29, mr, fo  Make it so the Plugh API is only called for gargamel stuff
-    
+      8:55 -  9:35  0.75  e, o        email
+      9:35 -  9:41  0.00  f, o        filing time
+      9:41 - 10:50  1.25  30, mr, fo  Create booster view which lets you add people to booster
+     10:50 - 12:15  1.50  10, mr, fo  get multi-tenant S3 attachments to work
+     12:15 - 12:16  0.00  c, o        feeding the cat
+     12:16 -  3:46  3.50  10, mr, fo  get multi-tenant S3 attachments to work
+      3:46 -  3:50  0.00  29, mr, fo  Make it so the Plugh API is only called for gargamel stuff
+      3:50 -  3:50  0.00  mtg, fo     FO/UPI Monthly Check-In
+      3:50 -  4:01  0.25  29, mr, fo  Make it so the Plugh API is only called for gargamel stuff
+      4:01 -  4:30  0.50  mtg, fo     FO/UPI Monthly Check-In
+      4:30 -  5:01  0.50  29, mr, fo  Make it so the Plugh API is only called for gargamel stuff
+
     TOTAL HOURS 8.00
     10          5.00
     29          0.75
@@ -78,7 +78,7 @@ The typical things one does with job log are
 Here is the complete list (`job help`):
 
 ```
-testing 0.1.3
+testing 0.1.6
 dfhoughton <dfhoughton@gmail.com>
 command line job clock
 
@@ -127,38 +127,38 @@ The 'job' executable allows one to maintain and view a log of daily activity.
   > job done
   ending you can go off the clock at 11:13 am
   > job resume --tag foo
-  starting tags facilitate searching and aggregation (tags: foo)
+  resuming tags facilitate searching and aggregation (tags: foo)
   > job note you can resume an earlier event
   noted you can resume an earlier event (no tags)
   > job note you can summarize the log
   noted you can summarize the log (no tags)
   > job summary today
   Sunday, 19 January
-    11:11 am - 11:12    0.021       creating demonstration events in the log; events have a duration
-       11:12 - 11:13    0.006  foo  tags facilitate searching and aggregation
-       11:13 - 11:13    0.001       you can go off the clock
-       11:13 - ongoing  0.007  foo  tags facilitate searching and aggregation
-  
+    11:11 - 11:12    0.021       creating demonstration events in the log; events have a duration
+    11:12 - 11:13    0.006  foo  tags facilitate searching and aggregation
+    11:13 - 11:13    0.001       you can go off the clock
+    11:13 - ongoing  0.007  foo  tags facilitate searching and aggregation
+
   TOTAL HOURS 0.036
   UNTAGGED    0.022
   foo         0.013
   > job summary --notes today
   Sunday, 19 January
-    11:12 am    you can take notes as well
-    11:12       notes are events without a duration
-    11:13       you can resume an earlier event
-    11:13       you can summarize the log
+    11:12    you can take notes as well
+    11:12    notes are events without a duration
+    11:13    you can resume an earlier event
+    11:13    you can summarize the log
   > job note you can configure job
   noted you can configure job (no tags)
   > job configure --precision quarter
   setting precision to quarter!
   > job summary today
   Sunday, 19 January
-    11:11 am - 11:12    0.00       creating demonstration events in the log; events have a duration
-       11:12 - 11:13    0.00  foo  tags facilitate searching and aggregation
-       11:13 - 11:13    0.00       you can go off the clock
-       11:13 - ongoing  0.00  foo  tags facilitate searching and aggregation
-  
+    11:11 - 11:12    0.00       creating demonstration events in the log; events have a duration
+    11:12 - 11:13    0.00  foo  tags facilitate searching and aggregation
+    11:13 - 11:13    0.00       you can go off the clock
+    11:13 - ongoing  0.00  foo  tags facilitate searching and aggregation
+
   TOTAL HOURS 0.00
   UNTAGGED    0.00
   foo         0.00
