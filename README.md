@@ -68,8 +68,8 @@ Watch Job Log in action!
 There are many alternatives to JobLog. One can use [Harvest](https://www.getharvest.com/), for instance. The advantages of JobLog
 over these alternatives are
 * your data is on your own machine; it is your own file; you can keep it across changes of employer
-* if live on the command line, or typically have one handy, the mental context switch, and manual dexterity, is less when one changes tasks; one simply tabs to the command line and types `job a new thing I'm doing`
-* it doesn't need and internet connection
+* if you live on the command line, or typically have one handy, the mental context switch and manual dexterity required is less when one changes tasks; one simply tabs to the command line and types `job a new thing I'm doing`
+* it doesn't need any internet connection
 * job log is blazingly fast
 * job log keeps random notes for you as well as events; this sometimes is helpful
 
@@ -228,10 +228,18 @@ colon-delimited timestamps to the end of the relevant line. This is the only bre
 * You can configure jobrog to use fractional hour precision, like quarter and half.
 * You can obtain summaries as line-delimited JSON as well as tabulated text.
 * The merging and display of summary information is considerably less configurable.
+* There is a statistics subcommand if you want a quick overview of a time period.
 
 ## Why Rewrite App::JobLog?
 
 * Everyone's doing it!
 * Rust is fun!
-* The rust version is perceptibly faster and in some cases usefully faster.
+* The Rust version is faster, and in some cases usefully, faster.
 * My Perl skills were in little demand and thus becoming rusty.
+
+## Acknowledgements
+
+I would like to thank
+* my wife Paula, who has been the only consisten user of Job Log other than myself over the past ten years or so
+* my son Jude, who helps me debug stuff and proded me to get back on task when I was letting the JobLog rewrite lie fallow
+* my co-workers, who humor me when I talk about JobLog and then go back to using other mechanisms to keep track of their time
