@@ -1,5 +1,8 @@
 # Change Log
 
+## 0.1.7
+* fixed unsetting workdays bug
+* improved screencasts
 ## 0.1.6 *2020-2-2*
 * make it so you can unset the clock configuration parameter
 * various documentation fixes

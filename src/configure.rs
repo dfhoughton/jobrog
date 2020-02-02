@@ -496,7 +496,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                     write = true;
                 }
                 "workdays" => {
-                    conf.workdays = WORKDAYS.parse().unwrap();
+                    conf.workdays(WORKDAYS);
                     write = true;
                 }
                 &_ => set = false,

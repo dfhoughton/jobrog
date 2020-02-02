@@ -51,11 +51,17 @@ and added a line to `~/.joblog/log` which looks like
 Job log lets one manage a log of one's activities as a log file. A log line consists of a timestamp, some metadata, and a description of
 the current event.
 
-## Screencast
+## Screencasts
 
-You'll need to scroll down once it starts playing.
+Watch Job Log in action!
 
-[![asciicast](https://asciinema.org/a/rhoSb5wuM7CyGBUk7vG5wmlq7.svg)](https://asciinema.org/a/rhoSb5wuM7CyGBUk7vG5wmlq7)
+* [tour](https://asciinema.org/a/PsNtfEjmZUIHr6UBbOaqGWeyl)
+* [configuration](https://asciinema.org/a/8n8H9MZ9GzgwrvdNyscAdTUYI)
+* [when am I done for the day?](https://asciinema.org/a/4jwyN4IIfzAjkXqmxDrcnWxPU)
+* [vacation time](https://asciinema.org/a/K1pXQ4DcIobSaiT2XZRhZoZRl)
+* [report time by the quarter hour](https://asciinema.org/a/ITDGBCFnoPFyATYE8Wpb9qdCT)
+* [what was the last thing I logged?](https://asciinema.org/a/EPYUW38VzW1hNxQyRwzUJAz4r)
+* [taking notes](https://asciinema.org/a/TvozRcprzy3joEEP0inuJs7CP)
 
 ## Why
 
@@ -78,7 +84,7 @@ The typical things one does with job log are
 Here is the complete list (`job help`):
 
 ```
-testing 0.1.6
+testing 0.1.7
 dfhoughton <dfhoughton@gmail.com>
 command line job clock
 
@@ -200,6 +206,10 @@ To be ensured the latest version, one needs to use [`cargo`](https://doc.rust-la
 There is also a [homebrew](https://brew.sh/) tap:
 
     brew install dfhoughton/tap/jobrog
+
+This will also work, albeit more slowly:
+
+    brew install jobrog
 
 ## Changes from App::JobLog
 
