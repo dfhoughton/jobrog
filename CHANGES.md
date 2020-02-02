@@ -1,6 +1,6 @@
 # Change Log
 
-## 0.1.7
+## 0.1.7 *2020-2-2*
 * fixed unsetting workdays bug
 * improved screencasts
 ## 0.1.6 *2020-2-2*
