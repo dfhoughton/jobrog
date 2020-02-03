@@ -84,7 +84,7 @@ The typical things one does with job log are
 Here is the complete list (`job help`):
 
 ```
-testing 0.1.7
+testing 0.1.8
 dfhoughton <dfhoughton@gmail.com>
 command line job clock
 
