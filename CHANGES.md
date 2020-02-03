@@ -1,5 +1,7 @@
 # Change Log
 
+## 0.1.8
+* fixed when-on-fresh-day bug
 ## 0.1.7 *2020-2-2*
 * fixed unsetting workdays bug
 * improved screencasts

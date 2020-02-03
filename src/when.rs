@@ -6,7 +6,7 @@ use crate::configure::Configuration;
 use crate::log::{Event, Filter, LogController};
 use crate::util::fatal;
 use crate::vacation::VacationController;
-use chrono::{Duration, Local, NaiveDate, NaiveDateTime};
+use chrono::{Duration, Local, NaiveDateTime};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use two_timer::parse;
 
@@ -79,19 +79,19 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                 let events = reader.events_in_range(&start, &now);
                 let events = Event::gather_by_day(events, &end);
                 let filter = Filter::dummy();
+                let mut start_date = start.date();
+                let end_date = end.date();
+                let mut hours_required = 0.0;
+                while start_date < end_date {
+                    if conf.is_workday(&start_date) {
+                        hours_required += conf.day_length;
+                    }
+                    start_date += Duration::days(1);
+                }
                 let events = VacationController::read(None, conf.directory())
                     .add_vacation_times(&start, &end, events, &conf, None, &filter);
-                let mut hours_required = 0.0;
                 let mut seconds_worked = 0.0;
-                let mut last_workday: Option<NaiveDate> = None;
                 for e in events {
-                    let date = e.start.date();
-                    if conf.is_workday(&date) {
-                        if last_workday.is_none() || last_workday.unwrap() != date {
-                            hours_required += conf.day_length;
-                            last_workday = Some(date);
-                        }
-                    }
                     seconds_worked += e.duration(&now);
                 }
                 let seconds_required = hours_required * (60.0 * 60.0);
