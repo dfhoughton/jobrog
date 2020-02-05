@@ -77,34 +77,40 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
             } else {
                 let mut reader = LogController::new(None, &conf).expect("could not read log");
                 let events = reader.events_in_range(&start, &now);
-                let events = Event::gather_by_day(events, &end);
-                let filter = Filter::dummy();
+                // first figure out how much you *should* work during the period
                 let mut start_date = start.date();
-                let end_date = end.date();
+                let end_time = if now < end { now } else { end };
                 let mut hours_required = 0.0;
-                while start_date < end_date {
+                while start_date.and_hms(0, 0, 0) < end_time {
                     if conf.is_workday(&start_date) {
                         hours_required += conf.day_length;
                     }
                     start_date += Duration::days(1);
                 }
+                // then figure out how much you have worked
+                let events = Event::gather_by_day(events, &end);
+                let filter = Filter::dummy();
                 let events = VacationController::read(None, conf.directory())
                     .add_vacation_times(&start, &end, events, &conf, None, &filter);
                 let mut seconds_worked = 0.0;
+                let mut last_moment = None;
                 for e in events {
                     seconds_worked += e.duration(&now);
+                    last_moment = e.end.clone();
                 }
+                // now do the math
                 let seconds_required = hours_required * (60.0 * 60.0);
                 let delta = seconds_required - seconds_worked;
-                let delta_hours = delta / (60.0 * 60.0);
-                let completion_time = now + Duration::seconds(delta as i64);
-                if completion_time > now {
+                if delta > 0.0 {
+                    let completion_time = now + Duration::seconds(delta as i64);
+                    let delta_hours = delta / (60.0 * 60.0);
                     println!(
                         "you will be finished at {}, {:.2} hours from now",
                         tell_time(&now, &completion_time),
                         delta_hours
                     );
                 } else {
+                    let completion_time = last_moment.unwrap_or(now) + Duration::seconds(delta as i64);
                     println!("you were done at {}", tell_time(&now, &completion_time));
                 }
             }
