@@ -11,7 +11,8 @@ use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use two_timer::parse;
 
 fn after_help() -> &'static str {
-    "If you are expected to log a certain number of hours a day this command allows you \
+    "\
+If you are expected to log a certain number of hours a day this command allows you \
 to discover how many addional hours you will have to work to meet this expectation.
 
 Without any additional arguments the assumed period is the current day. Perhaps more useful \

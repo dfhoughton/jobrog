@@ -7,7 +7,8 @@ use crate::util::{check_for_ongoing_event, describe, some_nws};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 
 fn after_help() -> &'static str {
-    "This is the essential job command: adding an event to the log.
+    "\
+This is the essential job command: adding an event to the log.
 
   job add --tag doc just documenting a log line
 

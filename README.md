@@ -84,7 +84,7 @@ The typical things one does with job log are
 Here is the complete list (`job help`):
 
 ```
-testing 0.1.8
+testing 0.1.9
 dfhoughton <dfhoughton@gmail.com>
 command line job clock
 
@@ -123,7 +123,7 @@ The 'job' executable allows one to maintain and view a log of daily activity.
   starting events have a duration (no tags)
   > sleep 60
   > job add --tag foo tags facilitate searching and aggregation
-  starting tags facilitate searching and aggregation (tags: foo)
+  starting tags facilitate searching and aggregation (foo)
   > job note you can take notes as well
   noted you can take notes as well (no tags)
   > job note notes are events without a duration
@@ -133,7 +133,7 @@ The 'job' executable allows one to maintain and view a log of daily activity.
   > job done
   ending you can go off the clock at 11:13 am
   > job resume --tag foo
-  resuming tags facilitate searching and aggregation (tags: foo)
+  resuming tags facilitate searching and aggregation (foo)
   > job note you can resume an earlier event
   noted you can resume an earlier event (no tags)
   > job note you can summarize the log
