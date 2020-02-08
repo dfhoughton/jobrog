@@ -29,7 +29,7 @@ lazy_static! {
         blank            -> r(r"\s*")
         comment          -> r(r"\s*#.*")
         timestamped_item -> <timestamp> <ti_continuation>
-        timestamp        -> r(r"\s*[1-9]\d{3}(?:\s+[1-9]\d?){2}(?:\s+(?:0|[1-9]\d?)){3}\s*")
+        timestamp        -> r(r"\s*[1-9]\d{3}(?:\s+\d{1,2}){5}\s*")
         ti_continuation  -> <taggable> | <done>
         taggable         -> <tag_separator> <tags> (":") <description>
         tag_separator    -> <event> | <note>
@@ -1340,6 +1340,17 @@ mod tests {
                 assert_eq!(16, time.hour(), "space doesn't matter");
                 assert_eq!(3, time.minute(), "space doesn't matter");
                 assert_eq!(30, time.second(), "space doesn't matter");
+            }
+            _ => assert!(false, "failed to parse a DONE line"),
+        };
+    }
+
+    #[test]
+    fn test_zero_padding() {
+        match parse_line("2019 12 01 16 03 30:DONE", 0) {
+            Item::Done(Done(time), _) => {
+                assert_eq!(1, time.day());
+                assert_eq!(3, time.minute());
             }
             _ => assert!(false, "failed to parse a DONE line"),
         };

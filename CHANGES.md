@@ -3,6 +3,7 @@
 ## 0.2.0
 * better time string formatting
 * changes to other formatting
+* allow zero-padding of times in timestamps
 ## 0.1.8 *2020-2-4*
 * fixed when-on-fresh-day bug
 ## 0.1.7 *2020-2-2*
