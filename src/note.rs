@@ -80,5 +80,5 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
         }
     }
     let (note, offset) = reader.append_note(description, tags);
-    describe("noted", Item::Note(note, offset), &conf);
+    describe("noted", None, Item::Note(note, offset), &conf);
 }

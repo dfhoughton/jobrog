@@ -88,5 +88,5 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
         }
     }
     let (event, offset) = reader.append_event(description, tags);
-    describe("starting", Item::Event(event, offset), &conf);
+    describe("starting", None, Item::Event(event, offset), &conf);
 }

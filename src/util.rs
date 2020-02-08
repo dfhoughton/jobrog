@@ -170,7 +170,9 @@ fn time_string(this_time: &Option<NaiveDateTime>, conf: &Configuration) -> Strin
     if let Some(this_time) = this_time {
         let format = if conf.h12 { "%l:%M" } else { "%k:%M" };
         // replace a space with non-breaking whitespace that won't be stripped or split by colonnade
-        format!("{}", this_time.format(format)).as_str().replace(" ", "\u{00A0}")
+        format!("{}", this_time.format(format))
+            .as_str()
+            .replace(" ", "\u{00A0}")
     } else {
         String::from(ONGOING)
     }
@@ -290,9 +292,8 @@ pub fn display_events(
         .expect("insufficient space for events table -- setting margin");
     event_table.columns[0].alignment(Alignment::Right);
     event_table.columns[1].left_margin(1);
-    event_table.columns[2]
-        .left_margin(1);
-        //.alignment(Alignment::Right);
+    event_table.columns[2].left_margin(1);
+    //.alignment(Alignment::Right);
     event_table.columns[4].priority(1);
     event_table.columns[5].priority(2);
 
@@ -402,10 +403,14 @@ pub fn fatal<T: ToString>(msg: T, conf: &Configuration) {
     std::process::exit(1);
 }
 
-pub fn describe(action: &str, item: Item, conf: &Configuration) {
+pub fn describe(action: &str, extra: Option<&str>, item: Item, conf: &Configuration) {
     let style = Style::new(conf);
-    let mut s = style.blue(action);
+    let mut s = style.bold(style.green(action));
     s += " ";
+    if let Some(extra) = extra {
+        s += extra;
+        s += " ";
+    }
     match item {
         Item::Event(
             Event {
@@ -416,9 +421,8 @@ pub fn describe(action: &str, item: Item, conf: &Configuration) {
             s += &description;
             s += " (";
             if tags.is_empty() {
-                s += &style.blue("no tags");
+                s += &style.purple("no tags");
             } else {
-                s += "tags: ";
                 s += &style.blue(tags.join(", "));
             }
             s += ")"
@@ -432,14 +436,14 @@ pub fn describe(action: &str, item: Item, conf: &Configuration) {
             s += &description;
             s += " (";
             if tags.is_empty() {
-                s += &style.blue("no tags");
+                s += &style.purple("no tags");
             } else {
                 s += "tags: ";
                 s += &style.blue(tags.join(", "));
             }
             s += ")"
         }
-        Item::Done(d, _) => s += &format!("{}", d.0.format("at %l:%M %P")),
+        Item::Done(d, _) => s += &style.blue(format!("{}", d.0.format("at %l:%M %P"))),
         _ => (),
     }
     println!("{}", s)

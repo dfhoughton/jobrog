@@ -2,6 +2,7 @@
 
 ## 0.2.0
 * better time string formatting
+* changes to other formatting
 ## 0.1.8 *2020-2-4*
 * fixed when-on-fresh-day bug
 ## 0.1.7 *2020-2-2*

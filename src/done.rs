@@ -37,9 +37,12 @@ pub fn run(directory: Option<&str>) {
         check_for_ongoing_event(&mut reader, &conf);
         if event.ongoing() {
             let (done, offset) = reader.close_event();
-            let mut message = String::from("ending ");
-            message += &event.description;
-            describe(&message, Item::Done(done, offset), &conf);
+            describe(
+                "ending",
+                Some(&event.description),
+                Item::Done(done, offset),
+                &conf,
+            );
         } else {
             warn("the most recent event is not ongoing", &conf);
             let now = Local::now().naive_local();
