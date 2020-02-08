@@ -169,7 +169,8 @@ pub fn log_path(directory: Option<&str>) -> std::path::PathBuf {
 fn time_string(this_time: &Option<NaiveDateTime>, conf: &Configuration) -> String {
     if let Some(this_time) = this_time {
         let format = if conf.h12 { "%l:%M" } else { "%k:%M" };
-        format!("{}", this_time.format(format))
+        // replace a space with non-breaking whitespace that won't be stripped or split by colonnade
+        format!("{}", this_time.format(format)).as_str().replace(" ", "\u{00A0}")
     } else {
         String::from(ONGOING)
     }
@@ -290,8 +291,8 @@ pub fn display_events(
     event_table.columns[0].alignment(Alignment::Right);
     event_table.columns[1].left_margin(1);
     event_table.columns[2]
-        .left_margin(1)
-        .alignment(Alignment::Right);
+        .left_margin(1);
+        //.alignment(Alignment::Right);
     event_table.columns[4].priority(1);
     event_table.columns[5].priority(2);
 

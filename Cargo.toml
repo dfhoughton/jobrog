@@ -27,7 +27,7 @@ flate2 = "1"
 rust-ini = "0"
 dirs = "2"
 chrono = "0"
-colonnade = "^1.2"
+colonnade = { version = "^1.3", features=["nbsp"] }
 term_size = "0"
 lazy_static = "1.4"
 ansi_term = "0"
