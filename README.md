@@ -66,12 +66,20 @@ Watch Job Log in action!
 ## Why
 
 There are many alternatives to JobLog. One can use [Harvest](https://www.getharvest.com/), for instance. The advantages of JobLog
-over these alternatives are
+over web apps are
 * your data is on your own machine; it is your own file; you can keep it across changes of employer
 * if you live on the command line, or typically have one handy, the mental context switch and manual dexterity required is less when one changes tasks; one simply tabs to the command line and types `job a new thing I'm doing`
 * it doesn't need any internet connection
 * job log is blazingly fast
 * job log keeps random notes for you as well as events; this sometimes is helpful
+
+Some other command-line time trackers I've come across
+* [work_tok](https://crates.io/crates/work_tock)
+* [Timewarrior](https://timewarrior.net/)
+
+I'm partial to JobLog, of course, because I wrote it and so it does exactly what I need.
+
+JobLog can produce JSON summaries, so it should be possible to export JobRog events to other time trackers.
 
 ## How
 
