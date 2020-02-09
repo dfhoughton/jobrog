@@ -242,7 +242,7 @@ colon-delimited timestamps to the end of the relevant line. This is the only bre
 
 * Everyone's doing it!
 * Rust is fun!
-* The Rust version is faster, and in some cases usefully, faster.
+* The Rust version is perceptibly, and in some cases usefully, faster.
 * My Perl skills were in little demand and thus becoming rusty.
 
 ## Acknowledgements
