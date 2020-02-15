@@ -1,5 +1,7 @@
 # Change Log
 
+## 0.2.0
+* fixed bug in statistics where the first reported timestamp was that immediately before that sought -- stats were off by one log line
 ## 0.1.9 *2020-2-8*
 * better time string formatting
 * changes to other formatting

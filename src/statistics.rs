@@ -76,7 +76,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
     let mut colonnade =
         Colonnade::new(2, conf.width()).expect("could not build the statistics table");
     colonnade.columns[1].alignment(Alignment::Right);
-    let (start_offset, end_time) = where_to_begin(matches, &conf);
+    let (start_offset, end_time, mut maybe_start_time) = where_to_begin(matches, &conf);
     let items = ItemsAfter::new(
         start_offset,
         log_path(conf.directory()).as_path().to_str().unwrap(),
@@ -97,6 +97,12 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
         if let Some((t, _)) = item.time() {
             if t > &end_time {
                 break;
+            }
+            if maybe_start_time.is_none() {
+                maybe_start_time = Some(t.clone());
+            }
+            if maybe_start_time.unwrap() > *t {
+                continue;
             }
             last_timestamp = Some(t.clone());
             if first_timestamp.is_none() {
@@ -184,7 +190,10 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
     }
 }
 
-fn where_to_begin(matches: &ArgMatches, conf: &Configuration) -> (usize, NaiveDateTime) {
+fn where_to_begin(
+    matches: &ArgMatches,
+    conf: &Configuration,
+) -> (usize, NaiveDateTime, Option<NaiveDateTime>) {
     if matches.is_present("period") {
         let period = remainder("period", matches);
         match parse(&period, conf.two_timer_config()) {
@@ -192,7 +201,7 @@ fn where_to_begin(matches: &ArgMatches, conf: &Configuration) -> (usize, NaiveDa
                 let mut log =
                     LogController::new(None, conf).expect("could not open log for reading");
                 if let Some(item) = log.find_line(&t1) {
-                    (item.offset(), t2)
+                    (item.offset(), t2, Some(t1))
                 } else {
                     fatal("the log does not cover the period specified", conf);
                     unreachable!()
@@ -207,7 +216,7 @@ fn where_to_begin(matches: &ArgMatches, conf: &Configuration) -> (usize, NaiveDa
             }
         }
     } else {
-        (0, Local::now().naive_local())
+        (0, Local::now().naive_local(), None)
     }
 }
 
