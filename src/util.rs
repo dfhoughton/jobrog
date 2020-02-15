@@ -223,13 +223,13 @@ pub fn display_notes(
     for (offset, row) in note_table.macerate(data).unwrap().iter().enumerate() {
         let date = notes[offset].time.date();
         if last_date.is_none() || last_date.unwrap() != date {
-            println!("{}", style.blue(date_string(&date, same_year)));
+            println!("{}", style.date_header(date_string(&date, same_year)));
         }
         last_date = Some(date);
         for line in row {
             for (cell_num, (margin, cell)) in line.iter().enumerate() {
                 let cell = match cell_num {
-                    1 => style.green(cell),
+                    1 => style.tags(cell),
                     _ => cell.to_owned(),
                 };
                 print!("{}{}", margin, cell);
@@ -306,7 +306,7 @@ pub fn display_events(
     {
         let date = events[offset].start.date();
         if last_date.is_none() || last_date.unwrap() != date {
-            println!("{}", style.blue(date_string(&date, same_year)));
+            println!("{}", style.date_header(date_string(&date, same_year)));
         }
         last_date = Some(date);
         let ongoing = ONGOING.to_owned();
@@ -315,19 +315,19 @@ pub fn display_events(
                 let cell = match cell_num {
                     2 => {
                         if cell == &ongoing {
-                            style.purple(cell)
+                            style.alert(cell)
                         } else {
                             cell.to_owned()
                         }
                     }
                     3 => {
                         if events[offset].vacation {
-                            style.purple(cell)
+                            style.alert(cell)
                         } else {
-                            style.green(cell)
+                            style.duration(cell)
                         }
                     }
-                    4 => style.blue(cell),
+                    4 => style.tags(cell),
                     _ => cell.to_owned(),
                 };
                 print!("{}{}", margin, cell);
@@ -372,7 +372,7 @@ pub fn display_events(
             for (cell_num, (margin, cell)) in line.iter().enumerate() {
                 // header values are red
                 let cell = if cell_num == 0 && offset < header_count {
-                    style.red(cell)
+                    style.important(cell)
                 } else {
                     cell.to_owned()
                 };
@@ -385,27 +385,27 @@ pub fn display_events(
 
 pub fn success<T: ToString>(msg: T, conf: &Configuration) {
     let style = Style::new(&conf);
-    eprintln!("{} {}", style.bold(style.green("ok:")), msg.to_string());
+    eprintln!("{} {}", style.success("ok:"), msg.to_string());
 }
 
 pub fn warn<T: ToString>(msg: T, conf: &Configuration) {
     let style = Style::new(&conf);
     eprintln!(
         "{} {}",
-        style.bold(style.purple("warning:")),
+        style.warning("warning:"),
         msg.to_string()
     );
 }
 
 pub fn fatal<T: ToString>(msg: T, conf: &Configuration) {
     let style = Style::new(&conf);
-    eprintln!("{} {}", style.bold(style.red("error:")), msg.to_string());
+    eprintln!("{} {}", style.error("error:"), msg.to_string());
     std::process::exit(1);
 }
 
 pub fn describe(action: &str, extra: Option<&str>, item: Item, conf: &Configuration) {
     let style = Style::new(conf);
-    let mut s = style.bold(style.green(action));
+    let mut s = style.success(action);
     s += " ";
     if let Some(extra) = extra {
         s += extra;
@@ -421,9 +421,9 @@ pub fn describe(action: &str, extra: Option<&str>, item: Item, conf: &Configurat
             s += &description;
             s += " (";
             if tags.is_empty() {
-                s += &style.purple("no tags");
+                s += &style.alert("no tags");
             } else {
-                s += &style.blue(tags.join(", "));
+                s += &style.tags(tags.join(", "));
             }
             s += ")"
         }
@@ -436,14 +436,14 @@ pub fn describe(action: &str, extra: Option<&str>, item: Item, conf: &Configurat
             s += &description;
             s += " (";
             if tags.is_empty() {
-                s += &style.purple("no tags");
+                s += &style.alert("no tags");
             } else {
                 s += "tags: ";
-                s += &style.blue(tags.join(", "));
+                s += &style.tags(tags.join(", "));
             }
             s += ")"
         }
-        Item::Done(d, _) => s += &style.blue(format!("{}", d.0.format("at %l:%M %P"))),
+        Item::Done(d, _) => s += &style.important(format!("{}", d.0.format("at %l:%M %P"))),
         _ => (),
     }
     println!("{}", s)
@@ -516,23 +516,14 @@ impl<'a> Style<'a> {
             noop: !conf.effective_color().0,
         }
     }
-    pub fn bold<T: ToString>(&self, text: T) -> String {
+    fn bold<T: ToString>(&self, text: T) -> String {
         if self.noop {
             return text.to_string();
         }
         format!("{}", ansi_term::Style::new().bold().paint(text.to_string()))
     }
-    pub fn italic<T: ToString>(&self, text: T) -> String {
-        if self.noop {
-            return text.to_string();
-        }
-        format!(
-            "{}",
-            ansi_term::Style::new().italic().paint(text.to_string())
-        )
-    }
     // the odd line in a striped table
-    pub fn odd_line<T: ToString>(&self, text: T) -> String {
+    pub fn even<T: ToString>(&self, text: T) -> String {
         if self.noop {
             return text.to_string();
         }
@@ -544,35 +535,77 @@ impl<'a> Style<'a> {
                 .paint(text.to_string())
         )
     }
-    pub fn cyan<T: ToString>(&self, text: T) -> String {
+    pub fn odd<T: ToString>(&self, text: T) -> String {
+        text.to_string()
+    }
+    fn cyan<T: ToString>(&self, text: T) -> String {
         if self.noop {
             return text.to_string();
         }
         format!("{}", Cyan.paint(text.to_string()))
     }
-    pub fn green<T: ToString>(&self, text: T) -> String {
+    fn green<T: ToString>(&self, text: T) -> String {
         if self.noop {
             return text.to_string();
         }
         format!("{}", Green.paint(text.to_string()))
     }
-    pub fn blue<T: ToString>(&self, text: T) -> String {
+    fn blue<T: ToString>(&self, text: T) -> String {
         if self.noop {
             return text.to_string();
         }
         format!("{}", Blue.paint(text.to_string()))
     }
-    pub fn red<T: ToString>(&self, text: T) -> String {
+    fn red<T: ToString>(&self, text: T) -> String {
         if self.noop {
             return text.to_string();
         }
         format!("{}", Red.paint(text.to_string()))
     }
-    pub fn purple<T: ToString>(&self, text: T) -> String {
+    fn purple<T: ToString>(&self, text: T) -> String {
         if self.noop {
             return text.to_string();
         }
         format!("{}", Purple.paint(text.to_string()))
+    }
+    pub fn error<T: ToString>(&self, text: T) -> String {
+        self.bold(self.red(text))
+    }
+    pub fn warning<T: ToString>(&self, text: T) -> String {
+        self.bold(self.purple(text))
+    }
+    pub fn success<T: ToString>(&self, text: T) -> String {
+        self.bold(self.green(text))
+    }
+    pub fn duration<T: ToString>(&self, text: T) -> String {
+        self.green(text)
+    }
+    pub fn date_header<T: ToString>(&self, text: T) -> String {
+        self.blue(text)
+    }
+    pub fn important<T: ToString>(&self, text: T) -> String {
+        self.red(text)
+    }
+    pub fn alert<T: ToString>(&self, text: T) -> String {
+        self.purple(text)
+    }
+    pub fn parse_header<T: ToString>(&self, text: T) -> String {
+        self.green(text)
+    }
+    pub fn vacation_header<T: ToString>(&self, text: T) -> String {
+        self.bold(text)
+    }
+    pub fn vacation_number<T: ToString>(&self, text: T) -> String {
+        self.blue(self.bold(text))
+    }
+    pub fn vacation_odd<T: ToString>(&self, text: T) -> String {
+        text.to_string()
+    }
+    pub fn vacation_even<T: ToString>(&self, text: T) -> String {
+        self.cyan(text)
+    }
+    pub fn tags<T: ToString>(&self, text: T) -> String {
+        self.blue(text)
     }
 }
 

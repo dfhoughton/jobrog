@@ -244,7 +244,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                 row.push(v.over_as_of_description());
                 data.push(row);
             }
-            let color = Style::new(&conf);
+            let style = Style::new(&conf);
             let mut table = Colonnade::new(9, conf.width())
                 .expect("could not create table to display vacation records");
             table
@@ -265,14 +265,19 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                     for (cell_num, (margin, contents)) in line.iter().enumerate() {
                         print!("{}", margin);
                         if row_num == 0 {
-                            print!("{}", color.bold(contents));
+                            print!("{}", style.vacation_header(contents));
                         } else {
                             match cell_num {
-                                0 => print!("{}", color.bold(color.blue(contents))),
-                                2 => print!("{}", color.green(contents)),
-                                3 => print!("{}", color.blue(contents)),
-                                4 => print!("{}", color.green(contents)),
-                                _ => print!("{}", contents),
+                                0 => print!("{}", style.vacation_number(contents)),
+                                2 => print!("{}", style.tags(contents)),
+                                _ => print!(
+                                    "{}",
+                                    if row_num % 2 == 0 {
+                                        style.vacation_even(contents)
+                                    } else {
+                                        style.vacation_odd(contents)
+                                    }
+                                ),
                             }
                         }
                     }

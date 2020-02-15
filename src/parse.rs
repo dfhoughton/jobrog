@@ -84,7 +84,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
     if some_nws(&phrase) {
         match parse(&phrase.trim(), conf.two_timer_config()) {
             Ok((start, end, range)) => {
-                let color = Style::new(&conf);
+                let style = Style::new(&conf);
                 let data = [
                     [String::from("start"), format!("{}", start)],
                     [String::from("end"), format!("{}", end)],
@@ -96,7 +96,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                     for line in row {
                         for (cell_num, (margin, contents)) in line.iter().enumerate() {
                             if cell_num == 0 {
-                                print!("{}{}", margin, color.green(contents));
+                                print!("{}{}", margin, style.parse_header(contents));
                             } else {
                                 print!("{}{}", margin, contents);
                             }

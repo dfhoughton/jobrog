@@ -600,9 +600,9 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
         let style = Style::new(&conf);
         for (i, line) in table.tabulate(&attributes).unwrap().iter().enumerate() {
             if i % 2 == 1 {
-                println!("{}", style.odd_line(line))
+                println!("{}", style.even(line))
             } else {
-                println!("{}", line);
+                println!("{}", style.odd(line));
             }
         }
         if !footnotes.is_empty() {
