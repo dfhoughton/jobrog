@@ -600,7 +600,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
         let style = Style::new(&conf);
         for (i, line) in table.tabulate(&attributes).unwrap().iter().enumerate() {
             if i % 2 == 1 {
-                println!("{}", style.even(line))
+                println!("{}", style.even(line)) // even in a one-indexed table
             } else {
                 println!("{}", style.odd(line));
             }

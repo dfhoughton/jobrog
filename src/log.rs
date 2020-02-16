@@ -20,7 +20,6 @@ lazy_static! {
     // making this public is useful for testing, but best to keep it hidden to
     // limit complexity and commitment
     #[doc(hidden)]
-    // this is a stripped-down version of GRAMMAR that just containst the most commonly used expressions
     pub static ref LOG_LINES: Grammar = grammar!{
 
         TOP -> r(r"\A") <log_item> r(r"\z")

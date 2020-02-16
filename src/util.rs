@@ -3,6 +3,7 @@ extern crate chrono;
 extern crate clap;
 extern crate colonnade;
 extern crate dirs;
+extern crate pidgin;
 extern crate regex;
 
 use crate::configure::Configuration;
@@ -12,6 +13,7 @@ use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
 use clap::{App, Arg, ArgMatches};
 use colonnade::{Alignment, Colonnade};
 use dirs::home_dir;
+use pidgin::{Grammar, Matcher};
 use regex::Regex;
 use std::collections::BTreeMap;
 use std::fs::{create_dir, File};
@@ -390,11 +392,7 @@ pub fn success<T: ToString>(msg: T, conf: &Configuration) {
 
 pub fn warn<T: ToString>(msg: T, conf: &Configuration) {
     let style = Style::new(&conf);
-    eprintln!(
-        "{} {}",
-        style.warning("warning:"),
-        msg.to_string()
-    );
+    eprintln!("{} {}", style.warning("warning:"), msg.to_string());
 }
 
 pub fn fatal<T: ToString>(msg: T, conf: &Configuration) {
@@ -500,6 +498,32 @@ pub fn init(directory: Option<&str>) {
         readme.write_all(b"\nJob Log\n\nThis directory holds files used by Job Log to maintain\na work log. For more details type\n\n   job --help\n\non the command line.\n\n       
 ").expect("could not write README");
     }
+}
+
+lazy_static! {
+    // making this public is useful for testing, but best to keep it hidden to
+    // limit complexity and commitment
+    #[doc(hidden)]
+    // to validate a line we use this
+    pub static ref STYLE: Grammar = grammar!{
+        (?bB)
+
+        TOP -> r(r"\A") <spec>* r(r"\z")
+
+        spec        -> <non_color> | <foreground> | <background>
+        non_color   => [["bold", "italic", "underline", "dimmed", "blink", "reverse", "hidden"]]
+        foreground  -> <fg>? <color>
+        background  -> <bg>  <color>
+        fg          => [["fg", "foreground"]]
+        bg          => [["bg", "background"]]
+        color       -> <named> | <fixed>
+        named       => [["black", "red", "green", "yellow", "blue", "purple", "cyan", "white"]]
+        fixed       => [(0..256).map(|i| i.to_string()).collect::<Vec<_>>()]
+    };
+    // to parse the line we use this iteratively
+    pub static ref SPEC : Grammar = STYLE.rule("spec").unwrap();
+    pub static ref STYLE_MATCHER: Matcher = STYLE.matcher().unwrap();
+    pub static ref SPEC_MATCHER: Matcher = SPEC.matcher().unwrap();
 }
 
 // putting this into a common struct so we can easily turn color off
@@ -639,5 +663,58 @@ pub fn yes_or_no<T: ToString>(msg: T) -> bool {
                 println!("please answer y or n");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn styles_that_match() {
+        for style in &[
+            "",
+            "bold",
+            " bold ",
+            "bold underline",
+            "bold bold",
+            " bold  bold ",
+            "red bold",
+            "bold red",
+            "fg red",
+            "foreground red",
+            "foreground 0",
+            "foreground 255",
+            "0",
+            "255",
+            "bg black",
+            "background black",
+        ] {
+            assert!(STYLE_MATCHER.is_match(style));
+        }
+    }
+
+    #[test]
+    fn styles_that_dont_match() {
+        for style in &["boldbold", "boldunderline", "foreground 256", "256"] {
+            assert!(!STYLE_MATCHER.is_match(style))
+        }
+    }
+
+    #[test]
+    fn parsing_styles() {
+        let style = "red bold bg 1";
+        let parses = SPEC_MATCHER
+            .rx
+            .find_iter(style)
+            .map(|m| SPEC_MATCHER.parse(m.as_str()).unwrap())
+            .collect::<Vec<_>>();
+        assert!(parses[0].has("foreground"));
+        assert!(parses[0].has("color"));
+        assert!(parses[0].has("named"));
+        assert!(parses[1].has("non_color"));
+        assert!(parses[2].has("background"));
+        assert!(parses[2].has("color"));
+        assert!(parses[2].has("fixed"));
     }
 }
