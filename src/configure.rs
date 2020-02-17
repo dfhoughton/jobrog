@@ -374,7 +374,8 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
                 Arg::with_name("unset")
                 .short("u")
                 .long("unset")
-                .help("Returns a configurable parameter to its default")
+                .help("Returns a configurable parameter to its default; to unset styles you need to provide both \
+                'style' and the parameter you wish to unset; e.g., --unset 'style even'")
                 .value_name("param")
                 .multiple(true)
                 .number_of_values(1)
@@ -652,6 +653,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                 _ => {
                     let parts = v.split_whitespace().collect::<Vec<_>>();
                     if parts.len() == 2 && parts[0] == "style" {
+                        write = true;
                         set = true;
                         match parts[1] {
                             "alert" => conf.alert = default_style("alert").to_string(),
