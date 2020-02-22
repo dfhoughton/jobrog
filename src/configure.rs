@@ -12,6 +12,7 @@ use clap::{App, Arg, ArgMatches, SubCommand};
 use colonnade::{Alignment, Colonnade};
 use ini::Ini;
 use regex::Regex;
+use std::collections::BTreeMap;
 use std::env;
 use std::fs::File;
 use std::path::PathBuf;
@@ -581,26 +582,13 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                     &conf,
                 );
             }
-            match identifier.as_str() {
-                "alert" => conf.alert = style,
-                "date_header" => conf.date_header = style,
-                "duration" => conf.duration = style,
-                "error" => conf.error = style,
-                "even" => conf.even = style,
-                "important" => conf.important = style,
-                "odd" => conf.odd = style,
-                "parse_header" => conf.parse_header = style,
-                "success" => conf.success = style,
-                "tags" => conf.tags = style,
-                "vacation_even" => conf.vacation_even = style,
-                "vacation_header" => conf.vacation_header = style,
-                "vacation_number" => conf.vacation_number = style,
-                "vacation_odd" => conf.vacation_odd = style,
-                "warning" => conf.warning = style,
-                _ => fatal(
+            if conf.style_map.contains_key(&identifier) {
+                conf.style_map.insert(identifier, style);
+            } else {
+                fatal(
                     format!("there is no configurable style named '{}'", identifier),
                     &conf,
-                ),
+                );
             }
             success(format!("set {} to {}", v[0], v[1]), &conf);
             did_something = true;
@@ -661,35 +649,11 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                     if parts.len() == 2 && parts[0] == "style" {
                         write = true;
                         set = true;
-                        match parts[1] {
-                            "alert" => conf.alert = default_style("alert").to_string(),
-                            "date_header" => {
-                                conf.date_header = default_style("date_header").to_string()
-                            }
-                            "duration" => conf.duration = default_style("duration").to_string(),
-                            "error" => conf.error = default_style("error").to_string(),
-                            "even" => conf.even = default_style("even").to_string(),
-                            "important" => conf.important = default_style("important").to_string(),
-                            "odd" => conf.odd = default_style("odd").to_string(),
-                            "parse_header" => {
-                                conf.parse_header = default_style("parse_header").to_string()
-                            }
-                            "success" => conf.success = default_style("success").to_string(),
-                            "tags" => conf.tags = default_style("tags").to_string(),
-                            "vacation_even" => {
-                                conf.vacation_even = default_style("vacation_even").to_string()
-                            }
-                            "vacation_header" => {
-                                conf.vacation_header = default_style("vacation_header").to_string()
-                            }
-                            "vacation_number" => {
-                                conf.vacation_number = default_style("vacation_number").to_string()
-                            }
-                            "vacation_odd" => {
-                                conf.vacation_odd = default_style("vacation_odd").to_string()
-                            }
-                            "warning" => conf.warning = default_style("warning").to_string(),
-                            _ => set = false,
+                        if conf.style_map.contains_key(parts[1]) {
+                            conf.style_map
+                                .insert(parts[1].to_owned(), default_style(parts[1]).to_owned());
+                        } else {
+                            set = false;
                         }
                     } else {
                         set = false
@@ -713,7 +677,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
         } else {
             did_something = true;
         }
-        let attributes = vec![
+        let mut attributes = vec![
             vec![
                 String::from("precision"),
                 format!("{}", conf.precision.to_s()),
@@ -789,28 +753,10 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                 }
                 color
             }],
-            vec![String::from("alert"), conf.alert.clone()],
-            vec![String::from("date_header"), conf.date_header.clone()],
-            vec![String::from("duration"), conf.duration.clone()],
-            vec![String::from("error"), conf.error.clone()],
-            vec![String::from("even"), conf.even.clone()],
-            vec![String::from("important"), conf.important.clone()],
-            vec![String::from("odd"), conf.odd.clone()],
-            vec![String::from("parse_header"), conf.parse_header.clone()],
-            vec![String::from("success"), conf.success.clone()],
-            vec![String::from("tags"), conf.tags.clone()],
-            vec![String::from("vacation_even"), conf.vacation_even.clone()],
-            vec![
-                String::from("vacation_header"),
-                conf.vacation_header.clone(),
-            ],
-            vec![
-                String::from("vacation_number"),
-                conf.vacation_number.clone(),
-            ],
-            vec![String::from("vacation_odd"), conf.vacation_odd.clone()],
-            vec![String::from("warning"), conf.warning.clone()],
         ];
+        for style in &conf.style_map {
+            attributes.push(vec![style.0.clone(), style.1.clone()]);
+        }
         let mut table = Colonnade::new(2, conf.width()).unwrap();
         table.columns[1].alignment(Alignment::Right).left_margin(2);
         let style = Style::new(&conf);
@@ -1038,22 +984,7 @@ pub struct Configuration {
     ini: Option<Ini>,
     dir: String,
     pub h12: bool,
-    // styles
-    pub alert: String,
-    pub date_header: String,
-    pub duration: String,
-    pub error: String,
-    pub even: String,
-    pub important: String,
-    pub odd: String,
-    pub parse_header: String,
-    pub success: String,
-    pub tags: String,
-    pub vacation_even: String,
-    pub vacation_header: String,
-    pub vacation_number: String,
-    pub vacation_odd: String,
-    pub warning: String,
+    pub style_map: BTreeMap<String, String>,
 }
 
 fn default_style(identifier: &str) -> &'static str {
@@ -1132,6 +1063,14 @@ impl Configuration {
             } else {
                 BEGINNING_WORK_DAY.clone()
             };
+            let mut map = BTreeMap::new();
+            for style in STYLES {
+                map.insert(
+                    style[0].to_owned(),
+                    ini.get_from_or(Some("style"), style[0], style[1])
+                        .to_string(),
+                );
+            }
             Configuration {
                 beginning_work_day,
                 day_length: ini
@@ -1170,66 +1109,14 @@ impl Configuration {
                     .get_from(Some("summary"), "max-width")
                     .and_then(|s| Some(s.parse().unwrap())),
                 dir: directory,
-                alert: ini
-                    .get_from_or(Some("style"), "alert", default_style("alert"))
-                    .to_string(),
-                date_header: ini
-                    .get_from_or(Some("style"), "date_header", default_style("date_header"))
-                    .to_string(),
-                duration: ini
-                    .get_from_or(Some("style"), "duration", default_style("duration"))
-                    .to_string(),
-                error: ini
-                    .get_from_or(Some("style"), "error", default_style("error"))
-                    .to_string(),
-                even: ini
-                    .get_from_or(Some("style"), "even", default_style("even"))
-                    .to_string(),
-                important: ini
-                    .get_from_or(Some("style"), "important", default_style("important"))
-                    .to_string(),
-                odd: ini
-                    .get_from_or(Some("style"), "odd", default_style("odd"))
-                    .to_string(),
-                parse_header: ini
-                    .get_from_or(Some("style"), "parse_header", default_style("parse_header"))
-                    .to_string(),
-                success: ini
-                    .get_from_or(Some("style"), "success", default_style("success"))
-                    .to_string(),
-                tags: ini
-                    .get_from_or(Some("style"), "tags", default_style("tags"))
-                    .to_string(),
-                vacation_even: ini
-                    .get_from_or(
-                        Some("style"),
-                        "vacation_even",
-                        default_style("vacation_even"),
-                    )
-                    .to_string(),
-                vacation_header: ini
-                    .get_from_or(
-                        Some("style"),
-                        "vacation_header",
-                        default_style("vacation_header"),
-                    )
-                    .to_string(),
-                vacation_number: ini
-                    .get_from_or(
-                        Some("style"),
-                        "vacation_number",
-                        default_style("vacation_number"),
-                    )
-                    .to_string(),
-                vacation_odd: ini
-                    .get_from_or(Some("style"), "vacation_odd", default_style("vacation_odd"))
-                    .to_string(),
-                warning: ini
-                    .get_from_or(Some("style"), "warning", default_style("warning"))
-                    .to_string(),
                 ini: Some(ini),
+                style_map: map,
             }
         } else {
+            let mut map = BTreeMap::new();
+            for style in STYLES {
+                map.insert(style[0].to_owned(), style[1].to_owned());
+            }
             Configuration {
                 ini: None,
                 day_length: DAY_LENGTH.parse().unwrap(),
@@ -1245,21 +1132,7 @@ impl Configuration {
                 max_width: None,
                 dir: directory,
                 h12: CLOCK == "12",
-                alert: default_style("alert").to_string(),
-                date_header: default_style("date_header").to_string(),
-                duration: default_style("duration").to_string(),
-                error: default_style("error").to_string(),
-                even: default_style("even").to_string(),
-                important: default_style("important").to_string(),
-                odd: default_style("odd").to_string(),
-                parse_header: default_style("parse_header").to_string(),
-                success: default_style("success").to_string(),
-                tags: default_style("tags").to_string(),
-                vacation_even: default_style("vacation_even").to_string(),
-                vacation_header: default_style("vacation_header").to_string(),
-                vacation_number: default_style("vacation_number").to_string(),
-                vacation_odd: default_style("vacation_odd").to_string(),
-                warning: default_style("warning").to_string(),
+                style_map: map,
             }
         }
     }
@@ -1321,64 +1194,10 @@ impl Configuration {
             ini.with_section(Some("summary"))
                 .set("max-width", format!("{}", self.max_width.unwrap()));
         }
-        if &self.alert != default_style("alert") {
-            ini.with_section(Some("style"))
-                .set("alert", self.alert.clone());
-        }
-        if &self.date_header != default_style("date_header") {
-            ini.with_section(Some("style"))
-                .set("date_header", self.date_header.clone());
-        }
-        if &self.duration != default_style("duration") {
-            ini.with_section(Some("style"))
-                .set("duration", self.duration.clone());
-        }
-        if &self.error != default_style("error") {
-            ini.with_section(Some("style"))
-                .set("error", self.error.clone());
-        }
-        if &self.even != default_style("even") {
-            ini.with_section(Some("style"))
-                .set("even", self.even.clone());
-        }
-        if &self.important != default_style("important") {
-            ini.with_section(Some("style"))
-                .set("important", self.important.clone());
-        }
-        if &self.odd != default_style("odd") {
-            ini.with_section(Some("style")).set("odd", self.odd.clone());
-        }
-        if &self.parse_header != default_style("parse_header") {
-            ini.with_section(Some("style"))
-                .set("parse_header", self.parse_header.clone());
-        }
-        if &self.success != default_style("success") {
-            ini.with_section(Some("style"))
-                .set("success", self.success.clone());
-        }
-        if &self.tags != default_style("tags") {
-            ini.with_section(Some("style"))
-                .set("tags", self.tags.clone());
-        }
-        if &self.vacation_even != default_style("vacation_even") {
-            ini.with_section(Some("style"))
-                .set("vacation_even", self.vacation_even.clone());
-        }
-        if &self.vacation_header != default_style("vacation_header") {
-            ini.with_section(Some("style"))
-                .set("vacation_header", self.vacation_header.clone());
-        }
-        if &self.vacation_number != default_style("vacation_number") {
-            ini.with_section(Some("style"))
-                .set("vacation_number", self.vacation_number.clone());
-        }
-        if &self.vacation_odd != default_style("vacation_odd") {
-            ini.with_section(Some("style"))
-                .set("vacation_odd", self.vacation_odd.clone());
-        }
-        if &self.warning != default_style("warning") {
-            ini.with_section(Some("style"))
-                .set("warning", self.warning.clone());
+        for style in &self.style_map {
+            if style.1 != default_style(&style.0) {
+                ini.with_section(Some("style")).set(style.0, style.1);
+            }
         }
         ini.write_to_file(Configuration::config_file(Some(&self.dir)))
             .expect("could not write config.ini");
