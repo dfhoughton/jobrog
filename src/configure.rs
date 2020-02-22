@@ -53,7 +53,7 @@ pub const STYLES: &'static [[&'static str; 4]; 15] = &[
     ],
     [
         "even",
-        "foreground black background cyan",
+        "cyan",
         "even row in a striped table",
         "configure --list",
     ],
@@ -132,7 +132,13 @@ by the following grammar:
   named      -> \"black\" | \"red\" | \"green\" | \"yellow\" | \"blue\" | \"purple\" | \"cyan\" | \"white\"
   fixed      -> 0 - 255
 
-The specifiable styles and sample style specifications can be found in the table below.
+Examples:
+
+  red
+  bold dimmed bg cyan
+  foreground 16
+
+The specifiable styles and more sample style specifications can be found in the table below.
 
 ";
         static ref OUTRO: &'static str = "\

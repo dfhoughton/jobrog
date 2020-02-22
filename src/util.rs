@@ -562,12 +562,6 @@ impl<'a> Style<'a> {
     pub fn odd<T: ToString>(&self, text: T) -> String {
         text.to_string()
     }
-    fn cyan<T: ToString>(&self, text: T) -> String {
-        if self.noop {
-            return text.to_string();
-        }
-        format!("{}", Cyan.paint(text.to_string()))
-    }
     fn green<T: ToString>(&self, text: T) -> String {
         if self.noop {
             return text.to_string();
@@ -621,12 +615,6 @@ impl<'a> Style<'a> {
     }
     pub fn vacation_number<T: ToString>(&self, text: T) -> String {
         self.blue(self.bold(text))
-    }
-    pub fn vacation_odd<T: ToString>(&self, text: T) -> String {
-        text.to_string()
-    }
-    pub fn vacation_even<T: ToString>(&self, text: T) -> String {
-        self.cyan(text)
     }
     pub fn tags<T: ToString>(&self, text: T) -> String {
         self.blue(text)

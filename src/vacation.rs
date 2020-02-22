@@ -273,9 +273,9 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                                 _ => print!(
                                     "{}",
                                     if row_num % 2 == 0 {
-                                        style.vacation_even(contents)
+                                        style.even(contents)
                                     } else {
-                                        style.vacation_odd(contents)
+                                        style.odd(contents)
                                     }
                                 ),
                             }
