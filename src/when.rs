@@ -4,7 +4,7 @@ extern crate two_timer;
 
 use crate::configure::Configuration;
 use crate::log::{Event, Filter, LogController};
-use crate::util::fatal;
+use crate::util::{fatal, Style};
 use crate::vacation::VacationController;
 use chrono::{Duration, Local, NaiveDateTime};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
@@ -102,17 +102,22 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                 // now do the math
                 let seconds_required = hours_required * (60.0 * 60.0);
                 let delta = seconds_required - seconds_worked;
+                let style = Style::new(&conf);
                 if delta > 0.0 {
                     let completion_time = now + Duration::seconds(delta as i64);
                     let delta_hours = delta / (60.0 * 60.0);
                     println!(
                         "you will be finished at {}, {:.2} hours from now",
-                        tell_time(&now, &completion_time),
+                        style.paint("important", tell_time(&now, &completion_time)),
                         delta_hours
                     );
                 } else {
-                    let completion_time = last_moment.unwrap_or(now) + Duration::seconds(delta as i64);
-                    println!("you were done at {}", tell_time(&now, &completion_time));
+                    let completion_time =
+                        last_moment.unwrap_or(now) + Duration::seconds(delta as i64);
+                    println!(
+                        "you were done at {}",
+                        style.paint("important", tell_time(&now, &completion_time))
+                    );
                 }
             }
         }
