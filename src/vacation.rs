@@ -265,10 +265,10 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                     for (cell_num, (margin, contents)) in line.iter().enumerate() {
                         print!("{}", margin);
                         if row_num == 0 {
-                            print!("{}", style.paint("vacation_header", contents));
+                            print!("{}", style.paint("header", contents));
                         } else {
                             match cell_num {
-                                0 => print!("{}", style.paint("vacation_number", contents)),
+                                0 => print!("{}", style.paint("header", contents)),
                                 2 => print!("{}", style.paint("tags", contents)),
                                 _ => print!(
                                     "{}",

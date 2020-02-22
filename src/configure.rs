@@ -27,18 +27,12 @@ pub const WORKDAYS: &str = "MTWHF";
 pub const COLOR: &str = "true";
 pub const TRUNCATION: &str = "round";
 pub const CLOCK: &str = "12";
-pub const STYLES: &'static [[&'static str; 4]; 15] = &[
+pub const STYLES: &'static [[&'static str; 4]; 10] = &[
     [
         "alert",
         "purple",
         "something salient",
         "ongoing end time in summary",
-    ],
-    [
-        "date_header",
-        "blue",
-        "date strings in summaries",
-        "summary",
     ],
     [
         "duration",
@@ -59,6 +53,12 @@ pub const STYLES: &'static [[&'static str; 4]; 15] = &[
         "configure --list",
     ],
     [
+        "header",
+        "bold blue",
+        "header row in vacation table",
+        "vacation --list",
+    ],
+    [
         "important",
         "red",
         "important information",
@@ -66,42 +66,12 @@ pub const STYLES: &'static [[&'static str; 4]; 15] = &[
     ],
     ["odd", "", "odd row in a striped table", "configure --list"],
     [
-        "parse_header",
-        "green",
-        "header column in parse-time table",
-        "parse-time",
-    ],
-    [
         "success",
         "bold green",
         "everything is okay",
         "confirmation of configuration changes",
     ],
     ["tags", "blue", "tags in summaries", "summary"],
-    [
-        "vacation_even",
-        "cyan",
-        "even row in vacation table",
-        "vacation --list",
-    ],
-    [
-        "vacation_header",
-        "bold",
-        "header row in vacation table",
-        "vacation --list",
-    ],
-    [
-        "vacation_number",
-        "bold blue",
-        "index column in vacation table",
-        "vacation --list",
-    ],
-    [
-        "vacation_odd",
-        "",
-        "odd row in vacation table",
-        "vacation --list",
-    ],
     [
         "warning",
         "bold purple",

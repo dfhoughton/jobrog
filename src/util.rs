@@ -224,10 +224,7 @@ pub fn display_notes(
     for (offset, row) in note_table.macerate(data).unwrap().iter().enumerate() {
         let date = notes[offset].time.date();
         if last_date.is_none() || last_date.unwrap() != date {
-            println!(
-                "{}",
-                style.paint("date_header", date_string(&date, same_year))
-            );
+            println!("{}", style.paint("header", date_string(&date, same_year)));
         }
         last_date = Some(date);
         for line in row {
@@ -310,10 +307,7 @@ pub fn display_events(
     {
         let date = events[offset].start.date();
         if last_date.is_none() || last_date.unwrap() != date {
-            println!(
-                "{}",
-                style.paint("date_header", date_string(&date, same_year))
-            );
+            println!("{}", style.paint("header", date_string(&date, same_year)));
         }
         last_date = Some(date);
         let ongoing = ONGOING.to_owned();

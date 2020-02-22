@@ -96,7 +96,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                     for line in row {
                         for (cell_num, (margin, contents)) in line.iter().enumerate() {
                             if cell_num == 0 {
-                                print!("{}{}", margin, style.paint("parse_header", contents));
+                                print!("{}{}", margin, style.paint("header", contents));
                             } else {
                                 print!("{}{}", margin, contents);
                             }
