@@ -265,17 +265,17 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                     for (cell_num, (margin, contents)) in line.iter().enumerate() {
                         print!("{}", margin);
                         if row_num == 0 {
-                            print!("{}", style.vacation_header(contents));
+                            print!("{}", style.paint("vacation_header", contents));
                         } else {
                             match cell_num {
-                                0 => print!("{}", style.vacation_number(contents)),
-                                2 => print!("{}", style.tags(contents)),
+                                0 => print!("{}", style.paint("vacation_number", contents)),
+                                2 => print!("{}", style.paint("tags", contents)),
                                 _ => print!(
                                     "{}",
                                     if row_num % 2 == 0 {
-                                        style.even(contents)
+                                        style.paint("even", contents)
                                     } else {
-                                        style.odd(contents)
+                                        style.paint("odd", contents)
                                     }
                                 ),
                             }

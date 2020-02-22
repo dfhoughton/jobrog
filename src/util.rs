@@ -8,7 +8,6 @@ extern crate regex;
 
 use crate::configure::Configuration;
 use crate::log::{Event, Item, LogController, Note};
-use ansi_term::Colour::{Black, Blue, Cyan, Green, Purple, Red};
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
 use clap::{App, Arg, ArgMatches};
 use colonnade::{Alignment, Colonnade};
@@ -225,13 +224,16 @@ pub fn display_notes(
     for (offset, row) in note_table.macerate(data).unwrap().iter().enumerate() {
         let date = notes[offset].time.date();
         if last_date.is_none() || last_date.unwrap() != date {
-            println!("{}", style.date_header(date_string(&date, same_year)));
+            println!(
+                "{}",
+                style.paint("date_header", date_string(&date, same_year))
+            );
         }
         last_date = Some(date);
         for line in row {
             for (cell_num, (margin, cell)) in line.iter().enumerate() {
                 let cell = match cell_num {
-                    1 => style.tags(cell),
+                    1 => style.paint("tags", cell),
                     _ => cell.to_owned(),
                 };
                 print!("{}{}", margin, cell);
@@ -308,7 +310,10 @@ pub fn display_events(
     {
         let date = events[offset].start.date();
         if last_date.is_none() || last_date.unwrap() != date {
-            println!("{}", style.date_header(date_string(&date, same_year)));
+            println!(
+                "{}",
+                style.paint("date_header", date_string(&date, same_year))
+            );
         }
         last_date = Some(date);
         let ongoing = ONGOING.to_owned();
@@ -317,19 +322,19 @@ pub fn display_events(
                 let cell = match cell_num {
                     2 => {
                         if cell == &ongoing {
-                            style.alert(cell)
+                            style.paint("alert", cell)
                         } else {
                             cell.to_owned()
                         }
                     }
                     3 => {
                         if events[offset].vacation {
-                            style.alert(cell)
+                            style.paint("alert", cell)
                         } else {
-                            style.duration(cell)
+                            style.paint("duration", cell)
                         }
                     }
-                    4 => style.tags(cell),
+                    4 => style.paint("tags", cell),
                     _ => cell.to_owned(),
                 };
                 print!("{}{}", margin, cell);
@@ -374,7 +379,7 @@ pub fn display_events(
             for (cell_num, (margin, cell)) in line.iter().enumerate() {
                 // header values are red
                 let cell = if cell_num == 0 && offset < header_count {
-                    style.important(cell)
+                    style.paint("important", cell)
                 } else {
                     cell.to_owned()
                 };
@@ -387,23 +392,23 @@ pub fn display_events(
 
 pub fn success<T: ToString>(msg: T, conf: &Configuration) {
     let style = Style::new(&conf);
-    eprintln!("{} {}", style.success("ok:"), msg.to_string());
+    eprintln!("{} {}", style.paint("success", "ok:"), msg.to_string());
 }
 
 pub fn warn<T: ToString>(msg: T, conf: &Configuration) {
     let style = Style::new(&conf);
-    eprintln!("{} {}", style.warning("warning:"), msg.to_string());
+    eprintln!("{} {}", style.paint("warning", "warning:"), msg.to_string());
 }
 
 pub fn fatal<T: ToString>(msg: T, conf: &Configuration) {
     let style = Style::new(&conf);
-    eprintln!("{} {}", style.error("error:"), msg.to_string());
+    eprintln!("{} {}", style.paint("error", "error:"), msg.to_string());
     std::process::exit(1);
 }
 
 pub fn describe(action: &str, extra: Option<&str>, item: Item, conf: &Configuration) {
     let style = Style::new(conf);
-    let mut s = style.success(action);
+    let mut s = style.paint("success", action);
     s += " ";
     if let Some(extra) = extra {
         s += extra;
@@ -419,9 +424,9 @@ pub fn describe(action: &str, extra: Option<&str>, item: Item, conf: &Configurat
             s += &description;
             s += " (";
             if tags.is_empty() {
-                s += &style.alert("no tags");
+                s += &style.paint("alert", "no tags");
             } else {
-                s += &style.tags(tags.join(", "));
+                s += &style.paint("tags", tags.join(", "));
             }
             s += ")"
         }
@@ -434,14 +439,16 @@ pub fn describe(action: &str, extra: Option<&str>, item: Item, conf: &Configurat
             s += &description;
             s += " (";
             if tags.is_empty() {
-                s += &style.alert("no tags");
+                s += &style.paint("alert", "no tags");
             } else {
                 s += "tags: ";
-                s += &style.tags(tags.join(", "));
+                s += &style.paint("tags", tags.join(", "));
             }
             s += ")"
         }
-        Item::Done(d, _) => s += &style.important(format!("{}", d.0.format("at %l:%M %P"))),
+        Item::Done(d, _) => {
+            s += &style.paint("important", format!("{}", d.0.format("at %l:%M %P")))
+        }
         _ => (),
     }
     println!("{}", s)
@@ -527,97 +534,84 @@ lazy_static! {
 }
 
 // putting this into a common struct so we can easily turn color off
-pub struct Style<'a> {
+pub struct Style {
     noop: bool,
-    #[allow(dead_code)] // saving this for when the color of individual elements is configurable
-    conf: &'a Configuration,
+    style_map: BTreeMap<String, ansi_term::Style>,
 }
 
-impl<'a> Style<'a> {
-    pub fn new(conf: &'a Configuration) -> Style<'a> {
+impl Style {
+    pub fn new(conf: &Configuration) -> Style {
+        let mut style_map = BTreeMap::new();
+        for pair in &conf.style_map {
+            let specs = SPEC_MATCHER
+                .rx
+                .find_iter(&pair.1)
+                .map(|m| SPEC_MATCHER.parse(m.as_str()).unwrap())
+                .collect::<Vec<_>>();
+            let foreground = specs.iter().filter(|m| m.has("foreground"));
+            let mut style = if let Some(m) = foreground.last() {
+                let color = m.name("color").unwrap().as_str();
+                match color {
+                    "black" => ansi_term::Color::Black,
+                    "red" => ansi_term::Color::Red,
+                    "green" => ansi_term::Color::Green,
+                    "purple" => ansi_term::Color::Purple,
+                    "blue" => ansi_term::Color::Blue,
+                    "cyan" => ansi_term::Color::Cyan,
+                    "white" => ansi_term::Color::White,
+                    "yellow" => ansi_term::Color::Yellow,
+                    _ => ansi_term::Color::Fixed(color.parse().unwrap()),
+                }
+                .normal()
+            } else {
+                ansi_term::Style::default()
+            };
+            for m in specs {
+                if m.has("foreground") {
+                    continue;
+                }
+                style = if m.has("non_color") {
+                    match m.as_str() {
+                        "bold" => style.bold(),
+                        "italic" => style.italic(),
+                        "underline" => style.underline(),
+                        "dimmed" => style.dimmed(),
+                        "blink" => style.blink(),
+                        "reverse" => style.reverse(),
+                        "hidden" => style.hidden(),
+                        _ => unreachable!(),
+                    }
+                } else {
+                    let color = m.name("color").unwrap().as_str();
+                    match color {
+                        "black" => style.on(ansi_term::Color::Black),
+                        "red" => style.on(ansi_term::Color::Red),
+                        "green" => style.on(ansi_term::Color::Green),
+                        "purple" => style.on(ansi_term::Color::Purple),
+                        "blue" => style.on(ansi_term::Color::Blue),
+                        "cyan" => style.on(ansi_term::Color::Cyan),
+                        "white" => style.on(ansi_term::Color::White),
+                        "yellow" => style.on(ansi_term::Color::Yellow),
+                        _ => style.on(ansi_term::Color::Fixed(color.parse().unwrap())),
+                    }
+                }
+            }
+            style_map.insert(pair.0.clone(), style);
+        }
         Style {
-            conf,
             noop: !conf.effective_color().0,
+            style_map,
         }
     }
-    fn bold<T: ToString>(&self, text: T) -> String {
+    pub fn paint<T: ToString>(&self, style: &str, text: T) -> String {
         if self.noop {
-            return text.to_string();
+            text.to_string()
+        } else {
+            format!(
+                "{}",
+                self.style_map.get(style).unwrap().paint(text.to_string())
+            )
         }
-        format!("{}", ansi_term::Style::new().bold().paint(text.to_string()))
-    }
-    // the odd line in a striped table
-    pub fn even<T: ToString>(&self, text: T) -> String {
-        if self.noop {
-            return text.to_string();
-        }
-        format!(
-            "{}",
-            ansi_term::Style::new()
-                .on(Cyan)
-                .fg(Black)
-                .paint(text.to_string())
-        )
-    }
-    pub fn odd<T: ToString>(&self, text: T) -> String {
-        text.to_string()
-    }
-    fn green<T: ToString>(&self, text: T) -> String {
-        if self.noop {
-            return text.to_string();
-        }
-        format!("{}", Green.paint(text.to_string()))
-    }
-    fn blue<T: ToString>(&self, text: T) -> String {
-        if self.noop {
-            return text.to_string();
-        }
-        format!("{}", Blue.paint(text.to_string()))
-    }
-    fn red<T: ToString>(&self, text: T) -> String {
-        if self.noop {
-            return text.to_string();
-        }
-        format!("{}", Red.paint(text.to_string()))
-    }
-    fn purple<T: ToString>(&self, text: T) -> String {
-        if self.noop {
-            return text.to_string();
-        }
-        format!("{}", Purple.paint(text.to_string()))
-    }
-    pub fn error<T: ToString>(&self, text: T) -> String {
-        self.bold(self.red(text))
-    }
-    pub fn warning<T: ToString>(&self, text: T) -> String {
-        self.bold(self.purple(text))
-    }
-    pub fn success<T: ToString>(&self, text: T) -> String {
-        self.bold(self.green(text))
-    }
-    pub fn duration<T: ToString>(&self, text: T) -> String {
-        self.green(text)
-    }
-    pub fn date_header<T: ToString>(&self, text: T) -> String {
-        self.blue(text)
-    }
-    pub fn important<T: ToString>(&self, text: T) -> String {
-        self.red(text)
-    }
-    pub fn alert<T: ToString>(&self, text: T) -> String {
-        self.purple(text)
-    }
-    pub fn parse_header<T: ToString>(&self, text: T) -> String {
-        self.green(text)
-    }
-    pub fn vacation_header<T: ToString>(&self, text: T) -> String {
-        self.bold(text)
-    }
-    pub fn vacation_number<T: ToString>(&self, text: T) -> String {
-        self.blue(self.bold(text))
-    }
-    pub fn tags<T: ToString>(&self, text: T) -> String {
-        self.blue(text)
     }
 }
 
