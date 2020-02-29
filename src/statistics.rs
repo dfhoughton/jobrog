@@ -5,7 +5,7 @@ extern crate two_timer;
 
 use crate::configure::Configuration;
 use crate::log::{Done, Item, ItemsAfter, LogController};
-use crate::util::{fatal, log_path, remainder};
+use crate::util::{fatal, log_path, remainder, Style};
 use chrono::{Local, NaiveDateTime};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use colonnade::{Alignment, Colonnade};
@@ -73,6 +73,7 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
 pub fn run(directory: Option<&str>, matches: &ArgMatches) {
     let no_commas = matches.is_present("raw-numbers");
     let conf = Configuration::read(None, directory);
+    let style = Style::new(&conf);
     let mut colonnade =
         Colonnade::new(2, conf.width()).expect("could not build the statistics table");
     colonnade.columns[1].alignment(Alignment::Right);
@@ -185,8 +186,20 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
         ],
         [String::from("errors"), format_num(error_count, no_commas)],
     ];
-    for line in colonnade.tabulate(&data).expect("couild not tabulate data") {
-        println!("{}", line);
+    for (i, line) in colonnade
+        .tabulate(&data)
+        .expect("couild not tabulate data")
+        .iter()
+        .enumerate()
+    {
+        println!(
+            "{}",
+            if i % 2 == 0 {
+                style.paint("odd", line)
+            } else {
+                style.paint("even", line)
+            }
+        );
     }
 }
 

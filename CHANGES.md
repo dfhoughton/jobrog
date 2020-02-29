@@ -1,5 +1,7 @@
 # Change Log
 
+## 0.2.1
+* some changes to make styling more consistent
 ## 0.2.0 *2020-2-22*
 * fixed bug in statistics where the first reported timestamp was that immediately before that sought -- stats were off by one log line
 * made styles configurable
