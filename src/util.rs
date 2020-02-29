@@ -371,11 +371,14 @@ pub fn display_events(
     {
         for line in row {
             for (cell_num, (margin, cell)) in line.iter().enumerate() {
-                // header values are red
-                let cell = if cell_num == 0 && offset < header_count {
-                    style.paint("important", cell)
+                let cell = if cell_num == 0 {
+                    if offset < header_count {
+                        style.paint("important", cell)
+                    } else {
+                        style.paint("tags", cell)
+                    }
                 } else {
-                    cell.to_owned()
+                    style.paint("duration", cell)
                 };
                 print!("{}{}", margin, cell);
             }
