@@ -57,6 +57,7 @@ pub fn common_search_or_filter_arguments(
             Some(false) => "Skips notes that lack this tag.",
             None => "Skips events/notes that lack this tag."
         })
+        .conflicts_with("no-tags")
         .value_name("tag")
         .display_order(1)
     )
@@ -100,7 +101,21 @@ pub fn common_search_or_filter_arguments(
             None => "Skips events or notes that lack any of these tags. This is identical to --tag if only one value is provided. It is useful when you are looking for the last event/note that is tagged with some subset of a particular set of tags."
         })
         .value_name("tag")
+        .conflicts_with("no-tags")
         .display_order(3)
+    )
+    .arg(
+        Arg::with_name("no-tags")
+        .short("e")
+        .long("empty")
+        .visible_alias("no-tags")
+        .help(match for_events {
+            Some(true) => "Selects events that lack tags",
+            Some(false) => "Selects notes that lack tags",
+            None => "Selects events/notes that lack tags"
+        })
+        .conflicts_with_all(&["tag-some", "tag"])
+        .display_order(4)
     )
     .arg(
         Arg::with_name("rx")
@@ -119,7 +134,7 @@ pub fn common_search_or_filter_arguments(
         })
         .value_name("pattern")
         .validator(|arg| if Regex::new(&arg).is_ok() {Ok(())} else {Err(format!("'{}' cannot be parsed as a regular expression", &arg))})
-        .display_order(4)
+        .display_order(5)
     )
     .arg(
         Arg::with_name("rx-not")
@@ -138,7 +153,7 @@ pub fn common_search_or_filter_arguments(
         })
         .value_name("pattern")
         .validator(|arg| if Regex::new(&arg).is_ok() {Ok(())} else {Err(format!("'{}' cannot be parsed as a regular expression", &arg))})
-        .display_order(5)
+        .display_order(6)
     )
 }
 

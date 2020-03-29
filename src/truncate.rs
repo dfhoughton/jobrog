@@ -32,7 +32,7 @@ All prefixes of 'truncate' are aliases of the subcommand."
 pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
     mast.subcommand(
         SubCommand::with_name("truncate")
-            .aliases(&["t", "tr", "tru", "trun", "trunc", "trunca", "truncat"])
+            .aliases(&["tr", "tru", "trun", "trunc", "trunca", "truncat"])
             .about("Truncates the log so it only contains recent events")
             .after_help(after_help())
             .arg(

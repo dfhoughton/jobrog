@@ -284,6 +284,31 @@ impl LogController {
         }
         ret
     }
+    pub fn tagable_items_in_range(&mut self, start: &NaiveDateTime, end: &NaiveDateTime) -> Vec<Item> {
+        let mut ret = vec![];
+        if let Some(item) = self.find_line(start) {
+            for i in ItemsAfter::new(item.offset(), &self.path) {
+                match &i {
+                    Item::Note(n, _) => {
+                        if &n.time > end {
+                            break;
+                        } else {
+                            ret.push(i);
+                        }
+                    }
+                    Item::Event(e, _) => {
+                        if &e.start > end {
+                            break;
+                        } else {
+                            ret.push(i);
+                        }
+                    }
+                    _ => (),
+                }
+            }
+        }
+        ret
+    }
     pub fn notes_in_range(&mut self, start: &NaiveDateTime, end: &NaiveDateTime) -> Vec<Note> {
         let mut ret = vec![];
         if let Some(item) = self.find_line(start) {
@@ -1828,6 +1853,7 @@ pub struct Filter<'a> {
     some_tags: Option<Vec<&'a str>>,
     some_patterns: Option<RegexSet>,
     no_patterns: Option<RegexSet>,
+    empty: bool,
 }
 
 impl<'a> Filter<'a> {
@@ -1838,6 +1864,7 @@ impl<'a> Filter<'a> {
             some_tags: None,
             some_patterns: None,
             no_patterns: None,
+            empty: false,
         }
     }
     pub fn new(matches: &'a ArgMatches) -> Filter<'a> {
@@ -1856,21 +1883,37 @@ impl<'a> Filter<'a> {
         let no_patterns = matches
             .values_of("rx-not")
             .and_then(|values| Some(RegexSet::new(values).unwrap()));
+        let empty = matches.is_present("no-tags");
         Filter {
             all_tags,
             no_tags,
             some_tags,
             some_patterns,
             no_patterns,
+            empty,
         }
     }
     pub fn matches<T: Searchable>(&self, filterable: &T) -> bool {
         let tags = filterable.tags();
         let text = filterable.text();
         if tags.is_empty() {
-            if !(self.all_tags.is_none() && self.some_tags.is_none()) {
+            if self.empty {
+                if let Some(rx_set) = self.some_patterns.as_ref() {
+                    if !rx_set.is_match(text) {
+                        return false;
+                    }
+                }
+                if let Some(rx_set) = self.no_patterns.as_ref() {
+                    if rx_set.is_match(text) {
+                        return false;
+                    }
+                }
+                return true;
+            } else if !(self.all_tags.is_none() && self.some_tags.is_none()) {
                 return false;
             }
+        } else if self.empty {
+            return false;
         } else {
             if self.some_tags.is_some()
                 && !self

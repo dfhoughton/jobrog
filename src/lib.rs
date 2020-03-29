@@ -10,6 +10,7 @@ pub mod parse;
 pub mod resume;
 pub mod statistics;
 pub mod summary;
+pub mod tag;
 pub mod truncate;
 pub mod util;
 pub mod vacation;

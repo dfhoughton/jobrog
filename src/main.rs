@@ -4,8 +4,8 @@ extern crate jobrog;
 
 use clap::{App, Arg};
 use jobrog::{
-    add, configure, done, edit, first, last, note, parse, resume, statistics, summary, truncate,
-    util, vacation, when,
+    add, configure, done, edit, first, last, note, parse, resume, statistics, summary, tag,
+    truncate, util, vacation, when,
 };
 
 fn after_help() -> &'static str {
@@ -97,6 +97,7 @@ fn main() {
         first::cli,
         note::cli,
         when::cli,
+        tag::cli,
         edit::cli,
         configure::cli,
         vacation::cli,
@@ -117,6 +118,7 @@ fn main() {
         ("edit", Some(m)) => edit::run(directory, m),
         ("resume", Some(m)) => resume::run(directory, m),
         ("last", Some(m)) => last::run(directory, m),
+        ("tag", Some(m)) => tag::run(directory, m),
         ("first", Some(m)) => first::run(directory, m),
         ("when", Some(m)) => when::run(directory, m),
         ("summary", Some(m)) => summary::run(directory, m),

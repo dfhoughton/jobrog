@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.3.0
+* added tag subcommand
+* removed t as an alias for the truncate subcommand so it could be assigned to tag
+* added --empty to common filtering options
 ## 0.2.1 *2020-3-7*
 * some changes to make styling more consistent
 * bumped two-timer version number to get better time parsing
