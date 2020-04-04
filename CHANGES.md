@@ -4,6 +4,10 @@
 * added tag subcommand
 * removed t as an alias for the truncate subcommand so it could be assigned to tag
 * added --empty to common filtering options
+* prevented merging of events across day boundaries
+* improved the display of events that overlap day boundaries
+* fixed bug where the event or note immediately preceding the period summarized was being included
+* changed the day boundary warning so it doesn't print any events, just the warning
 ## 0.2.1 *2020-3-7*
 * some changes to make styling more consistent
 * bumped two-timer version number to get better time parsing

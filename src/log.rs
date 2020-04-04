@@ -284,7 +284,11 @@ impl LogController {
         }
         ret
     }
-    pub fn tagable_items_in_range(&mut self, start: &NaiveDateTime, end: &NaiveDateTime) -> Vec<Item> {
+    pub fn tagable_items_in_range(
+        &mut self,
+        start: &NaiveDateTime,
+        end: &NaiveDateTime,
+    ) -> Vec<Item> {
         let mut ret = vec![];
         if let Some(item) = self.find_line(start) {
             for i in ItemsAfter::new(item.offset(), &self.path) {
@@ -312,7 +316,14 @@ impl LogController {
     pub fn notes_in_range(&mut self, start: &NaiveDateTime, end: &NaiveDateTime) -> Vec<Note> {
         let mut ret = vec![];
         if let Some(item) = self.find_line(start) {
+            let mut at_first = true;
             for n in NotesAfter::new(item.offset(), self) {
+                if at_first && &n.time < start {
+                    at_first = false;
+                    continue;
+                } else {
+                    at_first = false
+                }
                 if &n.time < end {
                     ret.push(n);
                 } else {
@@ -1700,7 +1711,33 @@ impl Event {
         ret
     }
     fn mergeable(&self, other: &Self) -> bool {
-        self.end.is_some() && self.end.unwrap() == other.start && self.tags == other.tags
+        if self.end_overlap {
+            // keep overlapped events separate to facilitate display
+            return false;
+        }
+        if let Some(t) = self.end {
+            t.day() == self.start.day() && // other isn't in a different day -- don't merge across day boundaries
+            t == other.start  && self.tags == other.tags
+        } else {
+            false
+        }
+    }
+    // this event was split off a larger one that overlapped a day boundary
+    // it is the second part
+    pub fn overlaps_start(&self) -> bool {
+        self.end_overlap && self.start.hour() == 0
+    }
+    // this event was split off a larger one that overlapped a day boundary
+    // it is the first part
+    pub fn overlaps_end(&self) -> bool {
+        if !self.end_overlap {
+            return false;
+        }
+        if let Some(t) = self.end {
+            t.day() != self.start.day()
+        } else {
+            false
+        }
     }
     fn merge(&mut self, other: Self) {
         self.description = self.description.clone() + "; " + &other.description;

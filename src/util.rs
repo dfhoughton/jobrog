@@ -261,6 +261,9 @@ pub fn display_events(
     end: &NaiveDateTime,
     conf: &Configuration,
 ) {
+    lazy_static! {
+        static ref ANY_CONTENT: Regex = Regex::new(r"\S").unwrap();
+    }
     let style = Style::new(conf);
     let mut last_date: Option<NaiveDate> = None;
     let mut durations: BTreeMap<String, f32> = BTreeMap::new();
@@ -309,7 +312,6 @@ pub fn display_events(
     event_table.columns[0].alignment(Alignment::Right);
     event_table.columns[1].left_margin(1);
     event_table.columns[2].left_margin(1);
-    //.alignment(Alignment::Right);
     event_table.columns[4].priority(1);
     event_table.columns[5].priority(2);
 
@@ -320,17 +322,27 @@ pub fn display_events(
         .iter()
         .enumerate()
     {
-        let date = events[offset].start.date();
+        let e = events.get(offset).unwrap();
+        let date = e.start.date();
+        if date < start.date() {
+            continue;
+        }
         if last_date.is_none() || last_date.unwrap() != date {
             println!("{}", style.paint("header", date_string(&date, same_year)));
         }
         last_date = Some(date);
-        let ongoing = ONGOING.to_owned();
         for line in row {
             for (cell_num, (margin, cell)) in line.iter().enumerate() {
                 let cell = match cell_num {
+                    0 => {
+                        if e.overlaps_start() && ANY_CONTENT.is_match(cell) {
+                            style.paint("alert", cell)
+                        } else {
+                            cell.to_owned()
+                        }
+                    }
                     2 => {
-                        if cell == &ongoing {
+                        if e.overlaps_end() && ANY_CONTENT.is_match(cell) || cell == ONGOING {
                             style.paint("alert", cell)
                         } else {
                             cell.to_owned()
@@ -473,12 +485,6 @@ pub fn check_for_ongoing_event(reader: &mut LogController, conf: &Configuration)
             "it appears an event begun on a previous day is ongoing",
             conf,
         );
-        println!();
-        let last_event = reader.last_event().unwrap();
-        let start = &last_event.start.clone();
-        let now = Local::now().naive_local();
-        let event = Event::gather_by_day(vec![last_event], &now);
-        display_events(event, start, &now, conf);
         println!();
     }
 }

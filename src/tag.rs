@@ -54,7 +54,14 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
         Arg::with_name("last")
         .long("last")
         .short("l")
+        .conflicts_with("first")
         .help("Applies changes only to the last line found")
+    ).arg(
+        Arg::with_name("first")
+        .long("first")
+        .short("f")
+        .conflicts_with("last")
+        .help("Applies changes only to the first line found")
     ).arg(
         Arg::with_name("clear")
         .long("clear")
