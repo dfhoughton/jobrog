@@ -26,7 +26,8 @@ You give it a starting date and it splits your log into two with the active port
 containing all moments on that date or after. The older portion is \
 retained in the hidden directory.
 
-All prefixes of 'truncate' are aliases of the subcommand."
+All prefixes of 'truncate' excepting 't' are aliases of the subcommand. The 't' alias belongs \
+to the tag subcommand."
 }
 
 pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {

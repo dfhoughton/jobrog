@@ -9,7 +9,8 @@ use chrono::Local;
 use clap::{App, ArgMatches, SubCommand};
 
 fn after_help() -> &'static str {
-    "Should you want to find the first task of a particular sort in the log, the 'first' \
+    "\
+Should you want to find the first task of a particular sort in the log, the 'first' \
 subcommand will find it for you. This is slightly easier than visually scanning the log. \
 If you want to find the first event or note with a particular description of tag, this \
 subcommand is the way to go.

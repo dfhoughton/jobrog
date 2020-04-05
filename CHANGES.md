@@ -8,6 +8,7 @@
 * improved the display of events that overlap day boundaries
 * fixed bug where the event or note immediately preceding the period summarized was being included
 * changed the day boundary warning so it doesn't print any events, just the warning
+* shortened some long help text
 ## 0.2.1 *2020-3-7*
 * some changes to make styling more consistent
 * bumped two-timer version number to get better time parsing

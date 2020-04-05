@@ -51,6 +51,8 @@ and added a line to `~/.joblog/log` which looks like
 Job log lets one manage a log of one's activities as a log file. A log line consists of a timestamp, some metadata, and a description of
 the current event.
 
+[TOC]
+
 ## Screencasts
 
 Watch Job Log in action!
@@ -67,6 +69,7 @@ Watch Job Log in action!
 
 There are many alternatives to JobLog. One can use [Harvest](https://www.getharvest.com/), for instance. The advantages of JobLog
 over web apps are
+
 * your data is on your own machine; it is your own file; you can keep it across changes of employer
 * if you live on the command line, or typically have one handy, the mental context switch and manual dexterity required is less when one changes tasks; one simply tabs to the command line and types `job a new thing I'm doing`
 * it doesn't need any internet connection
@@ -74,6 +77,7 @@ over web apps are
 * job log keeps random notes for you as well as events; this sometimes is helpful
 
 Some other command-line time trackers I've come across
+
 * [work_tok](https://crates.io/crates/work_tock)
 * [Timewarrior](https://timewarrior.net/)
 
@@ -84,6 +88,7 @@ JobLog can produce JSON summaries, so it should be possible to export JobRog eve
 ## How
 
 The typical things one does with job log are
+
 * register a change of task
 * take a note
 * register going off the clock
@@ -92,7 +97,7 @@ The typical things one does with job log are
 Here is the complete list (`job help`):
 
 ```
-testing 0.1.9
+testing 0.3.0
 dfhoughton <dfhoughton@gmail.com>
 command line job clock
 
@@ -124,86 +129,95 @@ SUBCOMMANDS:
     help          Prints this message or the help of the given subcommand(s)
 
 The 'job' executable allows one to maintain and view a log of daily activity.
-
-  > job add creating demonstration events in the log
-  starting creating demonstration events in the log (no tags)
-  > job add events have a duration
-  starting events have a duration (no tags)
-  > sleep 60
-  > job add --tag foo tags facilitate searching and aggregation
-  starting tags facilitate searching and aggregation (foo)
-  > job note you can take notes as well
-  noted you can take notes as well (no tags)
-  > job note notes are events without a duration
-  noted notes are events without a duration (no tags)
-  > job add you can go off the clock
-  starting you can go off the clock (no tags)
-  > job done
-  ending you can go off the clock at 11:13 am
-  > job resume --tag foo
-  resuming tags facilitate searching and aggregation (foo)
-  > job note you can resume an earlier event
-  noted you can resume an earlier event (no tags)
-  > job note you can summarize the log
-  noted you can summarize the log (no tags)
-  > job summary today
-  Sunday, 19 January
-    11:11 - 11:12    0.021       creating demonstration events in the log; events have a duration
-    11:12 - 11:13    0.006  foo  tags facilitate searching and aggregation
-    11:13 - 11:13    0.001       you can go off the clock
-    11:13 - ongoing  0.007  foo  tags facilitate searching and aggregation
-
-  TOTAL HOURS 0.036
-  UNTAGGED    0.022
-  foo         0.013
-  > job summary --notes today
-  Sunday, 19 January
-    11:12    you can take notes as well
-    11:12    notes are events without a duration
-    11:13    you can resume an earlier event
-    11:13    you can summarize the log
-  > job note you can configure job
-  noted you can configure job (no tags)
-  > job configure --precision quarter
-  setting precision to quarter!
-  > job summary today
-  Sunday, 19 January
-    11:11 - 11:12    0.00       creating demonstration events in the log; events have a duration
-    11:12 - 11:13    0.00  foo  tags facilitate searching and aggregation
-    11:13 - 11:13    0.00       you can go off the clock
-    11:13 - ongoing  0.00  foo  tags facilitate searching and aggregation
-
-  TOTAL HOURS 0.00
-  UNTAGGED    0.00
-  foo         0.00
-
-This version of job is a Rust implementation: https://github.com/dfhoughton/jobrog. The original implementation was in
-Perl: https://metacpan.org/pod/App::JobLog.
 ```
 
 ## NOTE
 
 The examples shown here and throughout the job log documentation are generally the most verbose possible
 for the sake of clarity. They all have short forms, however, to save keystrokes. Instead of
+
 ```
 job add --tag overhead --tag email Reading the morning email.
 ```
+
 you can type
+
 ```
 job a -t overhead -t email Reading the morning email.
 ```
+
 You will probably find that long tags like this are irksome and reduce them as well:
+
 ```
 job a -t o -t e Reading the morning email.
 ```
+
 But if there is something you do frequently, the easiest thing to do is to give it a distinctive tag and just resume it:
+
 ```
 job resume -t e
 ```
+
 or
+
 ```
 job r -t e
 ```
+
+## Suggestions
+
+### Pattern of Usage
+
+If you have to keep a log of activity for billing purposes you often need to keep distinct bins for
+different accounts, overhead versus work for a particular client etc. In addition you may need to keep
+track of different projects or subcategories within a particular account. I find it useful, therefore, to
+a major category tag and one or more minor category tags with every task. Typically a non-overhead task
+consists of a major category, such as `sb`, a minor billing category, such as `cs`, and a github issue
+number. Then when I need to add items to my time sheet I type
+
+    job s -d yesterday -T o -T sb
+
+first to confirm that I remembered to put everything in some major category bin. If this tells me there
+are no items, I have succeeded. Then I subdivide the tasks by major category.
+
+    job s -d yesterday -t o
+
+I find this clears away the clutter so the task goes more smoothly.
+
+If a particular major category I find it useful to eliminate things I've already entered.
+
+    job s -d yesterday -t sb -T 123 -T 124 -T 125
+
+This makes it progressively easier to focus on the next thing I need to enter.
+
+### Keeping a TODO List
+
+You can use the `note` subcommand to maintain a todo list.
+
+Add the following or some variant thereof to a shell profile file, `~/.zshrc` in my case:
+
+```bash
+alias todo="job n -t todo"
+alias todos="job to -n -t todo -T done"
+function did {
+        local rx=$1; shift
+        job tag -fnt todo -T done --rx $rx -a done $*
+}
+```
+
+Now (in a new terminal or after you type `source <shell profile file>` ) to create a todo item you type `todo <what should be done>`.
+
+To list today's todo items you type `todos`.
+
+To list all todo items ever you type `todos ever`; for all this week, `todos this week`; for yesterday's, `todos yesterday`; etc.
+
+To cross a particular item off the list you type `did <some word unique to today's item>`. The thing after `did` is interpreted
+as a regular expression. Only the *first* todo item in the given period whose description matches the regular expression will be
+marked as done. If you need to mark something as done which you didn't add today you need to provide the appropriate period. E.g.,
+
+    did something yesterday
+
+Here is a [screencast](https://asciinema.org/a/6W7Ap6l5597eFzXEAVQZ3miMe) of some todo list manipulation.
 
 ## Installation
 
@@ -214,10 +228,6 @@ To be ensured the latest version, one needs to use [`cargo`](https://doc.rust-la
 There is also a [homebrew](https://brew.sh/) tap:
 
     brew install dfhoughton/tap/jobrog
-
-This will also work, albeit more slowly:
-
-    brew install jobrog
 
 ## Changes from App::JobLog
 
@@ -237,6 +247,8 @@ colon-delimited timestamps to the end of the relevant line. This is the only bre
 * You can obtain summaries as line-delimited JSON as well as tabulated text.
 * The merging and display of summary information is considerably less configurable.
 * There is a statistics subcommand if you want a quick overview of a time period.
+* There is no modify subcommand.
+* The tags subcommand adds or removes tags instead of listing them.
 
 ## Why Rewrite App::JobLog?
 
@@ -248,6 +260,7 @@ colon-delimited timestamps to the end of the relevant line. This is the only bre
 ## Acknowledgements
 
 I would like to thank
+
 * my wife Paula, who has been the only consisten user of Job Log other than myself over the past ten years or so
 * my son Jude, who helps me debug stuff and proded me to get back on task when I was letting the JobLog rewrite lie fallow
 * my co-workers, who humor me when I talk about JobLog and then go back to using other mechanisms to keep track of their time

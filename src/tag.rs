@@ -18,15 +18,17 @@ use two_timer::parse;
 
 fn after_help() -> &'static str {
     "\
-If you are interrupted in the middle of the task you may want to add a timestamp to
+If you are interrupted in the middle of the task you may want to add a timestamp to \
 the log and delay tagging the task until a quieter moment:
     
     job a talking to Captain Distraction
 
-When you are done with this interruption you can return to your prior task, but now you
-need to categorize the interruption. You can `job edit` to add the missing tags, but the
-tag subcommand makes this a little easier. With `job tag --empty --last --add overhead --add communication` or
+When you are done with this interruption you can return to your prior task, but now you \
+need to categorize the interruption. You can `job edit` to add the missing tags, but the \
+tag subcommand makes this a little easier. With `job tag --empty --last --add overhead --add communication` or \
 perhaps `job t -el -a o -a c` you're back on your way.
+
+All prefixes of 'tag', so 't' and 'ta', are aliases of the subcommand.
 "
 }
 
