@@ -1,6 +1,6 @@
 # Change Log
 
-## 0.3.0
+## 0.3.0 *2020-4-5*
 * added tag subcommand
 * removed t as an alias for the truncate subcommand so it could be assigned to tag
 * added --empty to common filtering options
