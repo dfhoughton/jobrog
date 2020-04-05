@@ -1,3 +1,4 @@
+<!-- omit in toc -->
 # jobrog
 
 A rewrite of [JobLog](https://metacpan.org/pod/App::JobLog) in Rust.
@@ -51,18 +52,20 @@ and added a line to `~/.joblog/log` which looks like
 Job log lets one manage a log of one's activities as a log file. A log line consists of a timestamp, some metadata, and a description of
 the current event.
 
-- [jobrog](#jobrog)
-  - [Screencasts](#screencasts)
-  - [Why](#why)
-  - [How](#how)
-  - [NOTE](#note)
-  - [Suggestions](#suggestions)
-    - [Pattern of Usage](#pattern-of-usage)
-    - [Keeping a TODO List](#keeping-a-todo-list)
-  - [Installation](#installation)
-  - [Changes from App::JobLog](#changes-from-appjoblog)
-  - [Why Rewrite App::JobLog?](#why-rewrite-appjoblog)
-  - [Acknowledgements](#acknowledgements)
+<!-- omit in toc -->
+## Table of Contents
+
+- [Screencasts](#screencasts)
+- [Why](#why)
+- [How](#how)
+- [NOTE](#note)
+- [Suggestions](#suggestions)
+  - [Pattern of Usage](#pattern-of-usage)
+  - [Keeping a TODO List](#keeping-a-todo-list)
+- [Installation](#installation)
+- [Changes from App::JobLog](#changes-from-appjoblog)
+- [Why Rewrite App::JobLog?](#why-rewrite-appjoblog)
+- [Acknowledgements](#acknowledgements)
 
 ## Screencasts
 
