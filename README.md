@@ -211,12 +211,17 @@ You can use the `note` subcommand to maintain a todo list.
 Add the following or some variant thereof to a shell profile file, `~/.zshrc` in my case:
 
 ```bash
+# add an item to the TODO list
 alias todo="job n -t todo"
-alias todos="job to -n -t todo -T done"
+# show TODOs yet to do
+alias todos="job s -n -t todo -T done"
+# mark at TODO as completed
 function did {
         local rx=$1; shift
         job tag -fnt todo -T done --rx $rx -a done $*
 }
+# show completed TODOs
+alias triumphs="job s -n -t todo -t done"
 ```
 
 Now (in a new terminal or after you type `source <shell profile file>` ) to create a todo item you type `todo <what should be done>`.
