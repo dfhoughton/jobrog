@@ -732,4 +732,23 @@ mod tests {
         assert!(lines[0].contains("timestamp in future"));
         cleanup(vec![buff, backup_buff, conf_path, validation_path]);
     }
+
+    #[test]
+    fn test_bad_timestamp() {
+        let disambiguator = "test_bad_timestamp";
+        let validation = format!("validation_{}", disambiguator);
+        let validation_path = PathBuf::from_str(&validation).expect("could not make path");
+        let (conf_path, conf) = test_configuration(disambiguator);
+        let t = NaiveDate::from_ymd(2020, 5, 1).and_hms(0, 0, 0);
+        let events = [Stub::Error("2020  5  7  38 38 47::38 hours doesn't work")];
+        let now = t + Duration::weeks(1);
+        let (name, buff, _) = create_log(disambiguator, &t, &events);
+        let backup_name = format!("{}.bak", disambiguator);
+        let (backup_name, backup_buff, _) = create_log(&backup_name, &t, &events);
+        validation_messages(0, 0, &conf, Some(&name), Some(&backup_name), Some(now));
+        let lines = lines(&buff);
+        assert!(lines.iter().find(|&s| s.contains("ERROR")).is_some());
+        assert!(lines[0].contains("bad hour: 38"));
+        cleanup(vec![buff, backup_buff, conf_path, validation_path]);
+    }
 }

@@ -1023,8 +1023,8 @@ impl Vacation {
         }
         if let Some(ast) = MATCHER.parse(line) {
             if let Some(vacation) = ast.name("vacation") {
-                let start = parse_timestamp(vacation.name("start").unwrap().as_str());
-                let end = parse_timestamp(vacation.name("end").unwrap().as_str());
+                let start = parse_timestamp(vacation.name("start").unwrap().as_str()).unwrap();
+                let end = parse_timestamp(vacation.name("end").unwrap().as_str()).unwrap();
                 let tags = parse_tags(ast.name("tags").unwrap().as_str());
                 let description = unescape_description(ast.name("description").unwrap().as_str());
                 let kind = Type::from_num(vacation.name("kind").unwrap().as_str());
@@ -1032,10 +1032,10 @@ impl Vacation {
                     Repetition::from_num(vacation.name("repetition").unwrap().as_str());
                 let effective_as_of = vacation
                     .name("effective_as_of")
-                    .and_then(|s| Some(parse_timestamp(s.as_str())));
+                    .and_then(|s| Some(parse_timestamp(s.as_str()).unwrap()));
                 let over_as_of = vacation
                     .name("over_as_of")
-                    .and_then(|s| Some(parse_timestamp(s.as_str())));
+                    .and_then(|s| Some(parse_timestamp(s.as_str()).unwrap()));
                 Some(Vacation {
                     start,
                     end,

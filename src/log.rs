@@ -45,35 +45,39 @@ lazy_static! {
 pub fn parse_line(line: &str, offset: usize) -> Item {
     if let Some(ast) = MATCHER.parse(line) {
         if let Some(timestamp) = ast.name("timestamp") {
-            let timestamp = parse_timestamp(timestamp.as_str());
-            if ast.has("done") {
-                Item::Done(Done(timestamp), offset)
-            } else {
-                let tags = parse_tags(ast.name("tags").unwrap().as_str());
-                let description = ast.name("description").unwrap().as_str();
-                if ast.has("event") {
-                    Item::Event(
-                        Event {
-                            start: timestamp,
-                            start_overlap: false,
-                            end: None,
-                            end_overlap: false,
-                            description: description.to_owned(),
-                            tags: tags,
-                            vacation: false,
-                            vacation_type: None,
-                        },
-                        offset,
-                    )
-                } else {
-                    Item::Note(
-                        Note {
-                            time: timestamp,
-                            description: description.to_owned(),
-                            tags: tags,
-                        },
-                        offset,
-                    )
+            match parse_timestamp(timestamp.as_str()) {
+                Err(s) => Item::Error(s, offset),
+                Ok(timestamp) => {
+                    if ast.has("done") {
+                        Item::Done(Done(timestamp), offset)
+                    } else {
+                        let tags = parse_tags(ast.name("tags").unwrap().as_str());
+                        let description = ast.name("description").unwrap().as_str();
+                        if ast.has("event") {
+                            Item::Event(
+                                Event {
+                                    start: timestamp,
+                                    start_overlap: false,
+                                    end: None,
+                                    end_overlap: false,
+                                    description: description.to_owned(),
+                                    tags: tags,
+                                    vacation: false,
+                                    vacation_type: None,
+                                },
+                                offset,
+                            )
+                        } else {
+                            Item::Note(
+                                Note {
+                                    time: timestamp,
+                                    description: description.to_owned(),
+                                    tags: tags,
+                                },
+                                offset,
+                            )
+                        }
+                    }
                 }
             }
         } else if ast.has("blank") {
@@ -1528,7 +1532,7 @@ impl PartialOrd for Item {
     }
 }
 
-pub fn parse_timestamp(timestamp: &str) -> NaiveDateTime {
+pub fn parse_timestamp(timestamp: &str) -> Result<NaiveDateTime, String> {
     lazy_static! {
         static ref RE: Regex = Regex::new(r"\d+").unwrap();
     }
@@ -1536,11 +1540,35 @@ pub fn parse_timestamp(timestamp: &str) -> NaiveDateTime {
     // at this point the log lines grammar ensures all the parsing will be fine
     let year = numbers[0].parse::<i32>().unwrap();
     let month = numbers[1].parse::<u32>().unwrap();
+    if month == 0 || month > 12 {
+        return Err(format!("bad month: {}; must be in the range 1-12", month));
+    }
     let day = numbers[2].parse::<u32>().unwrap();
+    if day == 0 || day > 31 {
+        return Err(format!("bad day: {}; day must be in the range 1-31", day));
+    }
     let hour = numbers[3].parse::<u32>().unwrap();
+    if hour > 23 {
+        return Err(format!("bad hour: {}; hour must be less than 24", hour));
+    }
     let minute = numbers[4].parse::<u32>().unwrap();
+    if minute > 59 {
+        return Err(format!(
+            "bad minute: {}; minute must be less than 60",
+            minute
+        ));
+    }
     let second = numbers[5].parse::<u32>().unwrap();
-    NaiveDate::from_ymd(year, month, day).and_hms(hour, minute, second)
+    if second > 59 {
+        return Err(format!(
+            "bad second: {}; second must be less than 60",
+            second
+        ));
+    }
+    match NaiveDate::from_ymd_opt(year, month, day) {
+        Some(date) => Ok(date.and_hms(hour, minute, second)),
+        _ => Err(String::from("impossible date")),
+    }
 }
 
 pub fn timestamp(ts: &NaiveDateTime) -> String {

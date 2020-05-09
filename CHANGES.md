@@ -1,5 +1,7 @@
 # Change Log
 
+## 0.3.1 *2020-5-9*
+* Fixed validation bug -- was getting a panic on lines that contained impossible timestamps
 ## 0.3.0 *2020-4-5*
 * added tag subcommand
 * removed t as an alias for the truncate subcommand so it could be assigned to tag
