@@ -1,6 +1,6 @@
 [package]
 name = "jobrog"
-version = "0.3.1"
+version = "0.3.2"
 authors = ["dfhoughton <dfhoughton@gmail.com>"]
 description = "command line job clock"
 homepage="https://github.com/dfhoughton/jobrog"
@@ -32,7 +32,7 @@ term_size = "0"
 lazy_static = "1.4"
 ansi_term = "0"
 serde_json = "1"
-two_timer = { version="^2", features=["small_grammar"] }
+two_timer = { version="^2.1", features=["small_grammar"] }
 
 [dev-dependencies]
 rand = "0"
