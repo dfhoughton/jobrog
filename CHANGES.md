@@ -1,6 +1,6 @@
 # Change Log
 
-## 0.3.3
+## 0.3.3 *2020-10-19*
 * fix bug where the when subcommand added in vacation time after the present moment
 ## 0.3.2 *2020-5-17*
 * Pull in the lastest two-timer.
