@@ -92,7 +92,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                 let events = Event::gather_by_day(events, &end);
                 let filter = Filter::dummy();
                 let events = VacationController::read(None, conf.directory())
-                    .add_vacation_times(&start, &end_time, events, &conf, None, &filter);
+                    .add_vacation_times(&start, &end, events, &conf, None, &filter);
                 let mut seconds_worked = 0.0;
                 let mut last_moment = None;
                 for e in events {

@@ -459,6 +459,7 @@ impl VacationController {
             .push_str(".bak");
         parts.iter().collect()
     }
+    // takes a collection of events grouped by day and adds vacation pseudo-events
     pub fn add_vacation_times(
         &self,
         start: &NaiveDateTime,
@@ -475,6 +476,7 @@ impl VacationController {
         let mut date = start.date();
         let end_date = end.date();
         let now = now.unwrap_or(Local::now().naive_local());
+        let end_date = if now.date() < end_date { now.date() + Duration::days(1) } else { end_date };
         let sorted_records = self.sorted_vacation_records();
         while date < end_date {
             let mut seconds_worked = 0;
@@ -490,6 +492,7 @@ impl VacationController {
                 let e = if &e > end { end } else { &e };
                 let start_workday = start_workday(&s, conf);
                 let end_workday = start_workday + Duration::hours(conf.day_length as i64);
+                // and the end of the workday won't be past the last moment either
                 let end_workday = if &end_workday > e { e } else { &end_workday };
                 let delta = (end_workday.timestamp() - start_workday.timestamp()) as usize;
                 let mut unworked_seconds = if seconds_worked > delta {
@@ -497,10 +500,12 @@ impl VacationController {
                 } else {
                     delta - seconds_worked
                 };
+                // look through the vacation records for anything that overlaps this workday
                 for v in &sorted_records {
                     if let Some(event) = v.overlap(&s, e, unworked_seconds, conf) {
                         let duration = event.duration(&now) as usize;
                         if duration == 0 {
+                            // I don't recall why this is safe; events are sorted by length, longest to shortest?
                             break;
                         }
                         if filter.matches(&event) {
@@ -511,6 +516,7 @@ impl VacationController {
                             }
                             new_events.push(event);
                             if v.full_day(conf) {
+                                // can't add any more vacation time
                                 break;
                             }
                         }
