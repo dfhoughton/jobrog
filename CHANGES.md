@@ -1,11 +1,14 @@
 # Change Log
 
+## 1.0.0 *2020-11-21*
+There are no particular changes. I just feel jobrog is sufficiently stable that I'll promote the current
+code to 1.0.0.
 ## 0.3.4 *2020-10-19*
 * fix the 0.3.3 bug properly
 ## 0.3.3 *2020-10-19*
 * fix bug where the when subcommand added in vacation time after the present moment
 ## 0.3.2 *2020-5-17*
-* Pull in the lastest two-timer.
+* Pull in the latest two-timer.
 ## 0.3.1 *2020-5-9*
 * Fixed validation bug -- was getting a panic on lines that contained impossible timestamps
 ## 0.3.0 *2020-4-5*
