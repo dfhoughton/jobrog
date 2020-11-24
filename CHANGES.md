@@ -1,5 +1,7 @@
 # Change Log
 
+## 1.0.1 *2020-11-24*
+* change the name displayed by --version to "job"
 ## 1.0.0 *2020-11-21*
 There are no particular changes. I just feel jobrog is sufficiently stable that I'll promote the current
 code to 1.0.0.

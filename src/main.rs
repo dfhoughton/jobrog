@@ -13,7 +13,7 @@ fn after_help() -> &'static str {
 }
 
 fn main() {
-    let mut cli = App::new("testing")
+    let mut cli = App::new("job")
         .version(crate_version!())
         .author(crate_authors!())
         .after_help(after_help())
