@@ -185,7 +185,7 @@ job r -t e
 If you have to keep a log of activity for billing purposes you often need to keep distinct bins for
 different accounts, overhead versus work for a particular client, etc. In addition you may need to keep
 track of different projects or subcategories within a particular account. I find it useful, therefore, to
-a major category tag and one or more minor category tags with every task. Typically a non-overhead task
+use a major category tag and one or more minor category tags with every task. Typically a non-overhead task
 consists of a major category, such as `sb`, a minor billing category, such as `cs`, and a github issue
 number. Then when I need to add items to my time sheet I type
 
