@@ -183,7 +183,7 @@ job r -t e
 ### Pattern of Usage
 
 If you have to keep a log of activity for billing purposes you often need to keep distinct bins for
-different accounts, overhead versus work for a particular client etc. In addition you may need to keep
+different accounts, overhead versus work for a particular client, etc. In addition you may need to keep
 track of different projects or subcategories within a particular account. I find it useful, therefore, to
 a major category tag and one or more minor category tags with every task. Typically a non-overhead task
 consists of a major category, such as `sb`, a minor billing category, such as `cs`, and a github issue
@@ -198,7 +198,7 @@ are no items, I have succeeded. Then I subdivide the tasks by major category.
 
 I find this clears away the clutter so the task goes more smoothly.
 
-If a particular major category I find it useful to eliminate things I've already entered.
+In a particular major category I find it useful to eliminate things I've already entered.
 
     job s -d yesterday -t sb -T 123 -T 124 -T 125
 
