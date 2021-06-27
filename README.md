@@ -280,6 +280,6 @@ colon-delimited timestamps to the end of the relevant line. This is the only bre
 
 I would like to thank
 
-* my wife Paula, who has been the only consisten user of Job Log other than myself over the past ten years or so
+* my wife Paula, who has been the only consistent user of Job Log other than myself over the past ten years or so
 * my son Jude, who helps me debug stuff and proded me to get back on task when I was letting the JobLog rewrite lie fallow
 * my co-workers, who humor me when I talk about JobLog and then go back to using other mechanisms to keep track of their time
