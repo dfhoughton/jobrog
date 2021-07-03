@@ -1,5 +1,8 @@
 # Change Log
 
+## 1.0.2 *2021-7-3*
+* escape whitespace in tags
+* squish whitespace in tags
 ## 1.0.1 *2020-11-24*
 * change the name displayed by --version to "job"
 ## 1.0.0 *2020-11-21*

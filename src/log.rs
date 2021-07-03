@@ -1061,13 +1061,13 @@ mod tests {
                             if let Some(should_be_found) = should_be_found {
                                 assert_eq!(last_timed_item.unwrap(), should_be_found);
                             } else {
-                                assert!(false, format!("failed to revert to found time when looking for missing intermediate time {}", intermediate_time));
+                                assert!(false, "failed to revert to found time when looking for missing intermediate time {}", intermediate_time);
                             }
                         }
                     }
                     last_timed_item = Some(found_item);
                 } else {
-                    assert!(false, format!("could not find item at offset {}", offset));
+                    assert!(false, "could not find item at offset {}", offset);
                 }
                 cleanup(&[&conf_path]);
             }
@@ -1143,6 +1143,34 @@ mod tests {
                 assert_eq!(30, start.second());
                 assert_eq!(2, tags.len(), "there are some tags");
                 for t in vec!["foo", "bar"] {
+                    assert!(tags.contains(&t.to_owned()));
+                }
+                assert_eq!(
+                    "an event with some tags", &description,
+                    "got correct description"
+                )
+            }
+            _ => assert!(false, "failed to parse an event line"),
+        };
+        // can parse tags with spaces
+        match parse_line("2019 12 1 16 3 30:foo\\ bar:an event with some tags", 0) {
+            Item::Event(
+                Event {
+                    start,
+                    tags,
+                    description,
+                    ..
+                },
+                _,
+            ) => {
+                assert_eq!(2019, start.year());
+                assert_eq!(12, start.month());
+                assert_eq!(1, start.day());
+                assert_eq!(16, start.hour());
+                assert_eq!(3, start.minute());
+                assert_eq!(30, start.second());
+                assert_eq!(1, tags.len(), "there are some tags");
+                for t in vec!["foo bar"] {
                     assert!(tags.contains(&t.to_owned()));
                 }
                 assert_eq!(
@@ -1382,6 +1410,22 @@ mod tests {
             }
             _ => assert!(false, "failed to parse a DONE line"),
         };
+    }
+
+    #[test]
+    fn test_tag_whitespace_handling() {
+        let e = Event::coin(
+            String::from("foo"),
+            vec![String::from("foo bar"), String::from("baz   plugh")],
+        );
+        match parse_line(e.to_line().as_str(), 0) {
+            Item::Event(Event { tags, .. }, _) => {
+                assert_eq!(2, tags.len());
+                assert!(tags.contains(&String::from("foo bar")));
+                assert!(tags.contains(&String::from("baz plugh")));
+            }
+            _ => assert!(false, "failed to parse line as an event"),
+        }
     }
 
     #[test]
@@ -1627,12 +1671,22 @@ pub fn tags(tags: &Vec<String>) -> String {
         if i > 0 {
             s.push(' ');
         }
+        let mut ws = false;
         for c in tag.chars() {
             match c {
                 ':' | '\\' | '<' => s.push('\\'),
                 _ => (),
             }
-            s.push(if c.is_whitespace() { ' ' } else { c }); // normalize whitespace
+            if c.is_whitespace() {
+                if !ws {
+                    ws = true;
+                    s.push('\\');
+                    s.push(' '); // normalize whitespace
+                }
+            } else {
+                ws = false;
+                s.push(c);
+            }
         }
     }
     s
