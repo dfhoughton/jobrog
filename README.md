@@ -85,14 +85,14 @@ There are many alternatives to JobLog. One can use [Harvest](https://www.getharv
 over web apps are
 
 * your data is on your own machine; it is your own file; you can keep it across changes of employer
-* if you live on the command line, or typically have one handy, the mental context switch and manual dexterity required is less when one changes tasks; one simply tabs to the command line and types `job a new thing I'm doing`
+* if you live on the command line, or typically have one handy, the mental context switch and manual dexterity required is less when one changes tasks; one simply tabs to the command line and types `job a new task`
 * it doesn't need any internet connection
 * job log is blazingly fast
 * job log keeps random notes for you as well as events; this sometimes is helpful
 
 Some other command-line time trackers I've come across
 
-* [work_tok](https://crates.io/crates/work_tock)
+* [work_tock](https://crates.io/crates/work_tock)
 * [Timewarrior](https://timewarrior.net/)
 
 I'm partial to JobLog, of course, because I wrote it and so it does exactly what I need.
@@ -281,5 +281,5 @@ colon-delimited timestamps to the end of the relevant line. This is the only bre
 I would like to thank
 
 * my wife Paula, who has been the only consistent user of Job Log other than myself over the past ten years or so
-* my son Jude, who helps me debug stuff and proded me to get back on task when I was letting the JobLog rewrite lie fallow
+* my son Jude, who helps me debug stuff and prodded me to get back on task when I was letting the JobLog rewrite lie fallow
 * my co-workers, who humor me when I talk about JobLog and then go back to using other mechanisms to keep track of their time
