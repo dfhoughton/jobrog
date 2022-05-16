@@ -2,12 +2,15 @@ extern crate chrono;
 extern crate clap;
 extern crate two_timer;
 
+use std::collections::BTreeMap;
+
 use crate::configure::Configuration;
 use crate::log::{Event, Filter, LogController};
-use crate::util::{fatal, Style};
+use crate::util::{fatal, Style, duration_string};
 use crate::vacation::VacationController;
 use chrono::{Duration, Local, NaiveDateTime};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+use colonnade::{Alignment, Colonnade};
 use two_timer::parse;
 
 fn after_help() -> &'static str {
@@ -95,8 +98,35 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                     .add_vacation_times(&start, &end, events, &conf, None, &filter);
                 let mut seconds_worked = 0.0;
                 let mut last_moment = None;
+                let mut budget_counter: Option<BTreeMap<String, (f32, f32)>> =
+                    if let Some(budgets) = &conf.budgets {
+                        let mut bc: BTreeMap<String, (f32, f32)> = BTreeMap::new();
+                        for pair in budgets {
+                            bc.insert(pair.0.clone(), (pair.1 * 60.0 * 60.0, 0.0));
+                        }
+                        Some(bc)
+                    } else {
+                        None
+                    };
+                let mut next_threshold = conf.next_start_pay_period(&start.date());
                 for e in events {
-                    seconds_worked += e.duration(&now);
+                    let seconds = e.duration(&now);
+                    if let Some(bc) = &mut budget_counter {
+                        let d = e.start.date();
+                        if d >= next_threshold.unwrap() {
+                            // fresh budgets
+                            for (_, tuple) in bc.iter_mut() {
+                                tuple.1 = 0.0
+                            }
+                            next_threshold = conf.next_start_pay_period(&d)
+                        }
+                        for tag in &e.tags {
+                            if let Some(tuple) = bc.get_mut(tag.as_str()) {
+                                tuple.1 += seconds
+                            }
+                        }
+                    }
+                    seconds_worked += seconds;
                     last_moment = e.end.clone();
                 }
                 // now do the math
@@ -118,6 +148,45 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                         "you were done at {}",
                         style.paint("important", tell_time(&now, &completion_time))
                     );
+                }
+                if let Some(bc) = budget_counter {
+                    let style = Style::new(&conf);
+                    let mut lines = vec![vec![
+                        "budget".to_owned(),
+                        "budgeted".to_owned(),
+                        "completed".to_owned(),
+                    ]];
+                    let mut table = Colonnade::new(3, conf.width()).unwrap();
+                    for (tag, (budgeted, completed)) in bc {
+                        lines.push(vec![
+                            style.paint("tags", tag),
+                            style.paint("duration", duration_string(budgeted, &conf)),
+                            style.paint("duration", duration_string(completed, &conf)),
+                        ]);
+                    }
+                    table.columns[1].alignment(Alignment::Right).left_margin(2);
+                    table.columns[2].alignment(Alignment::Right).left_margin(2);
+                    println!("");
+                    for (offset, row) in table.macerate(&lines).expect("failed to macerate data").iter().enumerate() {
+                        if offset == 0 {
+                            for line in row.iter() {
+                                for (margin, content) in line.iter() {
+                                    print!("{}{}", margin, style.paint("header", content))
+                                }
+                            }
+                        } else {
+                            for line in row.iter() {
+                                for (col, (margin, content)) in line.iter().enumerate() {
+                                    if col == 0 {
+                                        print!("{}{}", margin, style.paint("tags", content))
+                                    } else {
+                                        print!("{}{}", margin, style.paint("duration", content))
+                                    }
+                                }
+                            }
+                        }
+                        println!("")
+                    }
                 }
             }
         }

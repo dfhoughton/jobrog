@@ -7,7 +7,7 @@ extern crate term_size;
 extern crate two_timer;
 
 use crate::util::{base_dir, fatal, success, warn, Style, STYLE_MATCHER};
-use chrono::{Datelike, NaiveDate};
+use chrono::{Datelike, Duration, NaiveDate};
 use clap::{App, Arg, ArgMatches, SubCommand};
 use colonnade::{Alignment, Colonnade};
 use ini::Ini;
@@ -189,7 +189,7 @@ fn valid_max_width(v: String) -> Result<(), String> {
     if n.is_ok() {
         if n.unwrap() < 40 {
             Err(format!(
-                "summaries in less than 40 columns will be unreadable"
+                "summaries in fewer than 40 columns will be unreadable"
             ))
         } else {
             Ok(())
@@ -344,6 +344,17 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
                 .long("style")
                 .help("Sets the style for a particular style identifier")
                 .value_name("id spec")
+                .multiple(true)
+                .number_of_values(2)
+            )
+            .arg(
+                Arg::with_name("budget")
+                .short("b")
+                .long("budget")
+                .help("Sets the time budget for a particular tag")
+                .long_help("Sets the time budget within the pay period for a particular tag. See the \"when\" command. \
+                E.g., --budget foo 12.5")
+                .value_name("tag hours")
                 .multiple(true)
                 .number_of_values(2)
             )
@@ -548,7 +559,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
             let style = v[1].clone();
             if !STYLE_MATCHER.is_match(&style) {
                 fatal(
-                    format!("cannot parse '{}' as a style specification", style),
+                    format!("cannot parse \"{}\" as a style specification", style),
                     &conf,
                 );
             }
@@ -563,6 +574,65 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
             success(format!("set {} to {}", v[0], v[1]), &conf);
             did_something = true;
             write = true;
+        }
+    }
+    if let Some(vs) = matches.values_of("budget") {
+        if let Some(total_hours) = conf.hours_in_pay_period() {
+            if total_hours == 0.0 {
+                fatal(
+                    "cannot set time budgets if there are no expected work hours in pay period"
+                        .to_owned(),
+                    &conf,
+                );
+            } else {
+                let mut budgets: Vec<(String, f32)> = conf
+                    .budgets
+                    .clone()
+                    .or_else(|| Some(vec![]))
+                    .unwrap()
+                    .iter()
+                    .map(|(tag, hours)| (tag.clone(), hours.clone()))
+                    .collect();
+                let values = vs.map(|s| s.to_string()).collect::<Vec<_>>();
+                for v in values.windows(2) {
+                    let tag = v[0].clone();
+                    let hours = v[1].clone();
+                    if let Ok(h) = hours.parse::<f32>() {
+                        if let Some(pair) = budgets.iter_mut().find(|p| p.0 == tag) {
+                            pair.1 = h;
+                        } else {
+                            budgets.push((tag, h))
+                        }
+                        success(
+                            format!("set time budget for \"{}\" to {} hours", v[0], v[1]),
+                            &conf,
+                        );
+                        did_something = true;
+                        write = true;
+                    } else {
+                        fatal(
+                            format!("cannot parse \"{}\" as a number of hours", hours),
+                            &conf,
+                        );
+                    }
+                }
+                let budgeted_hours: f32 = budgets.iter().map(|p| p.1).sum();
+                conf.budgets = Some(budgets);
+                if budgeted_hours > total_hours {
+                    warn(
+                        format!(
+                            "hours budgeted: {}; hours in pay period: {}",
+                            budgeted_hours, total_hours
+                        ),
+                        &conf,
+                    )
+                }
+            }
+        } else {
+            fatal(
+                "cannot set time budgets without an established pay period".to_owned(),
+                &conf,
+            )
         }
     }
     if let Some(vs) = matches.values_of("unset") {
@@ -617,13 +687,37 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                 _ => {
                     let parts = v.split_whitespace().collect::<Vec<_>>();
                     if parts.len() == 2 && parts[0] == "style" {
-                        write = true;
-                        set = true;
                         if conf.style_map.contains_key(parts[1]) {
+                            write = true;
+                            set = true;
                             conf.style_map
                                 .insert(parts[1].to_owned(), default_style(parts[1]).to_owned());
                         } else {
                             set = false;
+                        }
+                    } else if parts.len() > 1 && parts[0] == "budget" {
+                        let tag = parts[1..parts.len()].join(" ");
+                        let mut budgets: Vec<(String, f32)> = conf
+                            .budgets
+                            .clone()
+                            .or_else(|| Some(vec![]))
+                            .unwrap()
+                            .iter()
+                            .map(|(tag, hours)| (tag.clone(), hours.clone()))
+                            .collect();
+                        if let Some(i) = budgets.iter().position(|p| {
+                            p.0.split_whitespace().collect::<Vec<_>>().join(" ") == tag
+                        }) {
+                            write = true;
+                            set = true;
+                            if budgets.len() == 1 {
+                                conf.budgets = None
+                            } else {
+                                budgets.remove(i);
+                                conf.budgets = Some(budgets)
+                            }
+                        } else {
+                            set = false
                         }
                     } else {
                         set = false
@@ -726,6 +820,15 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
         ];
         for style in &conf.style_map {
             attributes.push(vec![style.0.clone(), style.1.clone()]);
+        }
+        if let Some(budgets) = &conf.budgets {
+            attributes.push(vec!["time budgets".to_owned(), "".to_owned()]);
+            for budget in budgets.iter() {
+                attributes.push(vec![
+                    format!("\u{00A0}\u{00A0}{}", budget.0),
+                    format!("{}", budget.1),
+                ])
+            }
         }
         let mut table = Colonnade::new(2, conf.width()).unwrap();
         table.columns[1].alignment(Alignment::Right).left_margin(2);
@@ -951,10 +1054,10 @@ pub struct Configuration {
     color: Option<bool>,
     pub workdays: u8, // bit flags
     pub max_width: Option<usize>,
-    ini: Option<Ini>,
     dir: String,
     pub h12: bool,
     pub style_map: BTreeMap<String, String>,
+    pub budgets: Option<Vec<(String, f32)>>,
 }
 
 fn default_style(identifier: &str) -> &'static str {
@@ -1079,31 +1182,46 @@ impl Configuration {
                     .get_from(Some("summary"), "max-width")
                     .and_then(|s| Some(s.parse().unwrap())),
                 dir: directory,
-                ini: Some(ini),
                 style_map: map,
+                budgets: ini
+                    .section(Some("budget"))
+                    .and_then(|p| {
+                        Some(
+                            p.iter()
+                                .map(|(key, value)| {
+                                    (String::from(key), value.parse::<f32>().unwrap())
+                                })
+                                .collect(),
+                        )
+                    })
+                    .or_else(|| None),
             }
         } else {
-            let mut map = BTreeMap::new();
-            for style in STYLES {
-                map.insert(style[0].to_owned(), style[1].to_owned());
-            }
-            Configuration {
-                ini: None,
-                day_length: DAY_LENGTH.parse().unwrap(),
-                editor: None,
-                length_pay_period: LENGTH_PAY_PERIOD.parse().unwrap(),
-                beginning_work_day: BEGINNING_WORK_DAY.clone(),
-                precision: Precision::from_s(PRECISION),
-                truncation: Truncation::from_s(TRUNCATION),
-                start_pay_period: None,
-                color: None,
-                sunday_begins_week: SUNDAY_BEGINS_WEEK == "true",
-                workdays: Configuration::parse_workdays(WORKDAYS),
-                max_width: None,
-                dir: directory,
-                h12: CLOCK == "12",
-                style_map: map,
-            }
+            Configuration::defaults(directory)
+        }
+    }
+    // factored out to facilitate testing
+    fn defaults(directory: String) -> Configuration {
+        let mut map = BTreeMap::new();
+        for style in STYLES {
+            map.insert(style[0].to_owned(), style[1].to_owned());
+        }
+        Configuration {
+            day_length: DAY_LENGTH.parse().unwrap(),
+            editor: None,
+            length_pay_period: LENGTH_PAY_PERIOD.parse().unwrap(),
+            beginning_work_day: BEGINNING_WORK_DAY.clone(),
+            precision: Precision::from_s(PRECISION),
+            truncation: Truncation::from_s(TRUNCATION),
+            start_pay_period: None,
+            color: None,
+            sunday_begins_week: SUNDAY_BEGINS_WEEK == "true",
+            workdays: Configuration::parse_workdays(WORKDAYS),
+            max_width: None,
+            dir: directory,
+            h12: CLOCK == "12",
+            style_map: map,
+            budgets: None,
         }
     }
     pub fn write(&self) {
@@ -1167,6 +1285,12 @@ impl Configuration {
         for style in &self.style_map {
             if style.1 != default_style(&style.0) {
                 ini.with_section(Some("style")).set(style.0, style.1);
+            }
+        }
+        if let Some(budgets) = &self.budgets {
+            for pair in budgets {
+                ini.with_section(Some("budget"))
+                    .set(pair.0.clone(), format!("{}", pair.1));
             }
         }
         ini.write_to_file(Configuration::config_file(Some(&self.dir)))
@@ -1243,6 +1367,38 @@ impl Configuration {
     pub fn is_workday(&self, date: &NaiveDate) -> bool {
         let i = (date.weekday().number_from_sunday() - 1) as u8;
         self.workdays & (1 << i) > 0
+    }
+    // find the first pay period start date *after* the given date
+    pub fn next_start_pay_period(&self, date: &NaiveDate) -> Option<NaiveDate> {
+        if let Some(known_pay_period_start_date) = self.start_pay_period {
+            let delta = date
+                .signed_duration_since(known_pay_period_start_date)
+                .num_days();
+            let l = self.length_pay_period as i64;
+            let remainder = delta % l;
+            if remainder < 0 {
+                Some(date.clone() - Duration::days(remainder))
+            } else {
+                Some(date.clone() + Duration::days(l - remainder))
+            }
+        } else {
+            None
+        }
+    }
+    pub fn hours_in_pay_period(&self) -> Option<f32> {
+        if let Some(d) = self.start_pay_period {
+            let mut acc: f32 = 0.0;
+            let mut d = d.clone();
+            for _ in 0..self.length_pay_period {
+                if self.is_workday(&d) {
+                    acc += self.day_length;
+                }
+                d += Duration::days(1)
+            }
+            Some(acc)
+        } else {
+            None
+        }
     }
     pub fn two_timer_config(&self) -> Option<Config> {
         Some(
@@ -1374,5 +1530,55 @@ mod tests {
         assert_eq!(0.001, trunctation.prepare(0.00011, &precision));
         assert_eq!(0.001, trunctation.prepare(0.001, &precision));
         assert_eq!(0.002, trunctation.prepare(0.0011, &precision));
+    }
+
+    #[test]
+    fn next_start_pay_period_same() {
+        let mut c = Configuration::defaults("foo".to_owned());
+        let start_pp = NaiveDate::from_ymd(2022, 5, 15);
+        let date = start_pp.clone();
+        c.start_pay_period = Some(start_pp.clone());
+        c.length_pay_period = 7;
+        assert_eq!(date + Duration::days(7), c.next_start_pay_period(&date).unwrap())
+    }
+
+    #[test]
+    fn next_start_pay_period_after() {
+        let mut c = Configuration::defaults("foo".to_owned());
+        let start_pp = NaiveDate::from_ymd(2022, 5, 15);
+        let date = start_pp + Duration::days(1);
+        c.start_pay_period = Some(start_pp.clone());
+        c.length_pay_period = 7;
+        assert_eq!(date + Duration::days(6), c.next_start_pay_period(&date).unwrap())
+    }
+
+    #[test]
+    fn next_start_pay_period_before() {
+        let mut c = Configuration::defaults("foo".to_owned());
+        let start_pp = NaiveDate::from_ymd(2022, 5, 15);
+        let date = start_pp - Duration::days(1);
+        c.start_pay_period = Some(start_pp.clone());
+        c.length_pay_period = 7;
+        assert_eq!(date + Duration::days(1), c.next_start_pay_period(&date).unwrap())
+    }
+
+    #[test]
+    fn next_start_pay_period_long_after() {
+        let mut c = Configuration::defaults("foo".to_owned());
+        let start_pp = NaiveDate::from_ymd(2022, 5, 15);
+        let date = start_pp + Duration::days(15);
+        c.start_pay_period = Some(start_pp.clone());
+        c.length_pay_period = 7;
+        assert_eq!(date + Duration::days(6), c.next_start_pay_period(&date).unwrap())
+    }
+
+    #[test]
+    fn next_start_pay_period_long_before() {
+        let mut c = Configuration::defaults("foo".to_owned());
+        let start_pp = NaiveDate::from_ymd(2022, 5, 15);
+        let date = start_pp - Duration::days(15);
+        c.start_pay_period = Some(start_pp.clone());
+        c.length_pay_period = 7;
+        assert_eq!(date + Duration::days(1), c.next_start_pay_period(&date).unwrap())
     }
 }

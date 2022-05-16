@@ -1,5 +1,8 @@
 # Change Log
 
+## 1.1.0 *unreleased*
+* bumped dirs and clapp versions
+* added time budget to when command
 ## 1.0.2 *2021-7-3*
 * escape whitespace in tags
 * squish whitespace in tags
