@@ -215,7 +215,7 @@ Add the following or some variant thereof to a shell profile file, `~/.zshrc` in
 alias todo="job n -t todo"
 # show TODOs yet to do
 alias todos="job s -n -t todo -T done"
-# mark at TODO as completed
+# mark a TODO as completed
 function did {
         local rx=$1; shift
         job tag -fnt todo -T done --rx $rx -a done $*
@@ -247,6 +247,8 @@ To be ensured the latest version, one needs to use [`cargo`](https://doc.rust-la
 There is also a [homebrew](https://brew.sh/) tap:
 
     brew install dfhoughton/tap/jobrog
+
+I do not keep this tap updated as well as I might. It's a bit hit-or-miss whether this is the latest.
 
 ## Changes from App::JobLog
 

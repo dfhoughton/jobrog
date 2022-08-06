@@ -42,7 +42,10 @@ have specific start and end times.
 Vacation times can be fixed -- with definite start and end times -- flex -- having a flexible extent that just \
 fills up unused workday hours in a particular day, or neither. The latter category is the default. The extent \
 of a vacation period on an ordinary vacation day is just as many hours as you would have been expected to work \
-had it been a regular workday.
+had it been a regular workday. To set the start and end times of a fixed vacation you need to provide explicit \
+start and end times to the --when option; e.g.,
+
+  > job vacation --type=flex --when=\"from 10 to 11\" eye appointment
 
 In addition to these distinctions a particular vacation may repeat annually or monthly. Repeated vacations are marked \
 as in force as of a particular data and, optionally, defunct as of another date. This way you can turn them on and \
@@ -972,7 +975,7 @@ impl Vacation {
 
     fn end_description(&self) -> String {
         match self.kind {
-            Type::Fixed => format!("{}", self.start.format("%I:%M %p")),
+            Type::Fixed => format!("{}", self.end.format("%I:%M %p")),
             _ => {
                 let d = (self.end - Duration::seconds(1)).date();
                 if self.start.date() == d {

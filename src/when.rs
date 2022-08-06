@@ -26,6 +26,16 @@ you must have configured a pay period for the job log. See the configure subcomm
   when: today
   you were done at  4:16:52 PM
 
+If you have configured time budgets (again, see the configure command), your the time \
+completed in each budget will also be displayed.
+
+ > job when pp
+ when: pp
+ you were done at  2:51:07 PM on Friday,  5 August 2022
+
+ budget  budgeted  completed
+ insp       15.00       1.00
+
 All prefixes of 'when' are aliases of the subcommand.
 "
 }

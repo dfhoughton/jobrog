@@ -343,6 +343,7 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
                 Arg::with_name("style")
                 .long("style")
                 .help("Sets the style for a particular style identifier")
+                .long_help("Sets the style for a particular style identifier. E.g., --style header 'bold italic purple'")
                 .value_name("id spec")
                 .multiple(true)
                 .number_of_values(2)
@@ -363,7 +364,9 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
                 .short("u")
                 .long("unset")
                 .help("Returns a configurable parameter to its default; to unset styles you need to provide both \
-                'style' and the parameter you wish to unset; e.g., --unset 'style even'")
+                'style' and the parameter you wish to unset; e.g., --unset 'style even'. \
+                Likewise for time budgets you need to provide both 'budget' and a tag identifying a particular \
+                budget; e.g., --unset 'budget foo'")
                 .value_name("param")
                 .multiple(true)
                 .number_of_values(1)
@@ -639,6 +642,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
         for v in vs {
             did_something = true;
             let mut set = true;
+            let mut warning = None;
             match v {
                 "day-length" => {
                     conf.day_length = DAY_LENGTH.parse().unwrap();
@@ -693,6 +697,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                             conf.style_map
                                 .insert(parts[1].to_owned(), default_style(parts[1]).to_owned());
                         } else {
+                            warning = Some(format!("unknown style: \"{}\"", parts[1]));
                             set = false;
                         }
                     } else if parts.len() > 1 && parts[0] == "budget" {
@@ -717,6 +722,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                                 conf.budgets = Some(budgets)
                             }
                         } else {
+                            warning = Some(format!("unknown budget: \"{}\"", tag));
                             set = false
                         }
                     } else {
@@ -727,7 +733,10 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
             if set {
                 success(format!("unset {}", v), &conf);
             } else {
-                warn(format!("unknown configuration parameter!: {}", v), &conf);
+                warn(
+                    warning.unwrap_or(format!("unknown configuration parameter: {}", v)),
+                    &conf,
+                );
             }
         }
     }
@@ -1539,7 +1548,10 @@ mod tests {
         let date = start_pp.clone();
         c.start_pay_period = Some(start_pp.clone());
         c.length_pay_period = 7;
-        assert_eq!(date + Duration::days(7), c.next_start_pay_period(&date).unwrap())
+        assert_eq!(
+            date + Duration::days(7),
+            c.next_start_pay_period(&date).unwrap()
+        )
     }
 
     #[test]
@@ -1549,7 +1561,10 @@ mod tests {
         let date = start_pp + Duration::days(1);
         c.start_pay_period = Some(start_pp.clone());
         c.length_pay_period = 7;
-        assert_eq!(date + Duration::days(6), c.next_start_pay_period(&date).unwrap())
+        assert_eq!(
+            date + Duration::days(6),
+            c.next_start_pay_period(&date).unwrap()
+        )
     }
 
     #[test]
@@ -1559,7 +1574,10 @@ mod tests {
         let date = start_pp - Duration::days(1);
         c.start_pay_period = Some(start_pp.clone());
         c.length_pay_period = 7;
-        assert_eq!(date + Duration::days(1), c.next_start_pay_period(&date).unwrap())
+        assert_eq!(
+            date + Duration::days(1),
+            c.next_start_pay_period(&date).unwrap()
+        )
     }
 
     #[test]
@@ -1569,7 +1587,10 @@ mod tests {
         let date = start_pp + Duration::days(15);
         c.start_pay_period = Some(start_pp.clone());
         c.length_pay_period = 7;
-        assert_eq!(date + Duration::days(6), c.next_start_pay_period(&date).unwrap())
+        assert_eq!(
+            date + Duration::days(6),
+            c.next_start_pay_period(&date).unwrap()
+        )
     }
 
     #[test]
@@ -1579,6 +1600,9 @@ mod tests {
         let date = start_pp - Duration::days(15);
         c.start_pay_period = Some(start_pp.clone());
         c.length_pay_period = 7;
-        assert_eq!(date + Duration::days(1), c.next_start_pay_period(&date).unwrap())
+        assert_eq!(
+            date + Duration::days(1),
+            c.next_start_pay_period(&date).unwrap()
+        )
     }
 }

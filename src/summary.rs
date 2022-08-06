@@ -72,7 +72,7 @@ pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 's
         SubCommand::with_name("summary")
             .aliases(&["s", "su", "sum", "summ", "summa", "summar", "to", "today"])
             // the last, "to", is there because I'm used to there being a today subcommand which does what summary with no further arguments does in jobrog
-            .about("Says when you will have worked all the hours expected within the given period")
+            .about("Provides a list summary of tasks performed in the given period")
             .after_help(after_help())
             .arg(
                 Arg::with_name("period")

@@ -1,8 +1,11 @@
 # Change Log
 
-## 1.1.0 *unreleased*
+## 1.1.0 *2022-8-6*
 * bumped dirs and clapp versions
 * added time budget to when command
+* fixed listing of fixed vacation times
+* improved feedback when unsetting unfamiliar styles and budgets
+* general documentation cleanup and extension
 ## 1.0.2 *2021-7-3*
 * escape whitespace in tags
 * squish whitespace in tags
