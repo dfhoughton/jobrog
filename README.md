@@ -127,7 +127,7 @@ OPTIONS:
 
 SUBCOMMANDS:
     add           Adds a new task
-    summary       Says when you will have worked all the hours expected within the given period
+    summary       Provides a list summary of tasks performed today
     done          Ends a currently open task
     resume        Resumes a stopped task
     last          Shows the last task recorded
