@@ -1,20 +1,15 @@
-extern crate chrono;
-extern crate clap;
-extern crate two_timer;
-
 use std::collections::BTreeMap;
 
 use crate::configure::Configuration;
 use crate::log::{Event, Filter, LogController};
-use crate::util::{fatal, Style, duration_string};
+use crate::util::{duration_string, fatal, Style};
 use crate::vacation::VacationController;
 use chrono::{Duration, Local, NaiveDateTime};
-use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+
 use colonnade::{Alignment, Colonnade};
 use two_timer::parse;
 
-fn after_help() -> &'static str {
-    "\
+pub const AFTER_HELP: &str = "\
 If you are expected to log a certain number of hours a day this command allows you \
 to discover how many addional hours you will have to work to meet this expectation.
 
@@ -37,40 +32,32 @@ completed in each budget will also be displayed.
  insp       15.00       1.00
 
 All prefixes of 'when' are aliases of the subcommand.
-"
+";
+
+#[derive(Debug, clap::Args)]
+#[command(
+    aliases = ["w", "wh", "whe"],
+    about = "Says when you will have worked all the hours expected within the given period",
+    after_help = AFTER_HELP,
+    after_long_help = AFTER_HELP,
+    trailing_var_arg = true
+)]
+pub struct Args {
+    /// time expression
+    ///
+    /// All the <period> arguments are concatenated to produce a time expression.
+    #[arg(value_name = "period", default_value = "today", num_args = 1..)]
+    pub period: Vec<String>,
 }
 
-pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
-    mast.subcommand(
-        SubCommand::with_name("when")
-            .aliases(&["w", "wh", "whe"])
-            .about("Says when you will have worked all the hours expected within the given period")
-            .after_help(after_help())
-            .setting(AppSettings::TrailingVarArg)
-            .arg(
-                Arg::with_name("period")
-                    .help("time expression")
-                    .long_help(
-                        "All the <period> arguments are concatenated to produce a time expression.",
-                    )
-                    .value_name("period")
-                    .default_value("today")
-                    .multiple(true),
-            )
-            .display_order(display_order),
-    )
-}
-
-pub fn run(directory: Option<&str>, matches: &ArgMatches) {
+pub fn run(directory: Option<&str>, args: &Args) {
     let conf = Configuration::read(None, directory);
-    let phrase = matches
-        .values_of("period")
-        .unwrap()
-        .collect::<Vec<&str>>()
-        .join(" ");
+    let phrase = args.period.join(" ");
     println!("when: {}", phrase);
     match parse(&phrase, conf.two_timer_config()) {
-        Ok((start, end, _)) => {
+        Ok(range) => {
+            let start = range.start;
+            let end = range.end;
             let now = Local::now().naive_local();
             if now <= start {
                 fatal(
@@ -95,7 +82,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                 let mut start_date = start.date();
                 let end_time = if now < end { now } else { end };
                 let mut hours_required = 0.0;
-                while start_date.and_hms(0, 0, 0) < end_time {
+                while start_date.and_hms_opt(0, 0, 0).unwrap() < end_time {
                     if conf.is_workday(&start_date) {
                         hours_required += conf.day_length;
                     }
@@ -125,7 +112,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                         let d = e.start.date();
                         if d >= next_threshold.unwrap() {
                             // fresh budgets
-                            for (_, tuple) in bc.iter_mut() {
+                            for tuple in bc.values_mut() {
                                 tuple.1 = 0.0
                             }
                             next_threshold = conf.next_start_pay_period(&d)
@@ -137,7 +124,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                         }
                     }
                     seconds_worked += seconds;
-                    last_moment = e.end.clone();
+                    last_moment = e.end;
                 }
                 // now do the math
                 let seconds_required = hours_required * (60.0 * 60.0);
@@ -174,10 +161,19 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                             style.paint("duration", duration_string(completed, &conf)),
                         ]);
                     }
-                    table.columns[1].alignment(Alignment::Right).left_margin(2);
-                    table.columns[2].alignment(Alignment::Right).left_margin(2);
-                    println!("");
-                    for (offset, row) in table.macerate(&lines).expect("failed to macerate data").iter().enumerate() {
+                    table.columns[1]
+                        .set_alignment(Alignment::Right)
+                        .set_left_margin(2);
+                    table.columns[2]
+                        .set_alignment(Alignment::Right)
+                        .set_left_margin(2);
+                    println!();
+                    for (offset, row) in table
+                        .macerate(&lines)
+                        .expect("failed to macerate data")
+                        .iter()
+                        .enumerate()
+                    {
                         if offset == 0 {
                             for line in row.iter() {
                                 for (margin, content) in line.iter() {
@@ -195,7 +191,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                                 }
                             }
                         }
-                        println!("")
+                        println!()
                     }
                 }
             }

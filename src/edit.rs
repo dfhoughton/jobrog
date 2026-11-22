@@ -1,21 +1,16 @@
-extern crate chrono;
-extern crate clap;
-
 use crate::configure::Configuration;
 use crate::log::{parse_line, timestamp, Item, LogController};
 use crate::util::{base_dir, fatal, log_path, success, warn};
 use chrono::{Local, NaiveDateTime};
-use clap::{App, Arg, ArgMatches, SubCommand};
+
 use std::fs::{copy, File};
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
 use std::process::Command;
-use std::str::FromStr;
 
 const BUFFER_SIZE: usize = 16 * 1024;
 
-fn after_help() -> &'static str {
-    "\
+pub const AFTER_HELP: &str = "\
 Sometimes you will fail to log a change of tasks, fail to log out at the end \
 of the day, or find you spent more time than is allowed at lunch. In these cases you \
 need to edit the log manually. The edit subcommand will open a text editor for you and \
@@ -24,118 +19,103 @@ comment them out, provide a preceding explanation of the error, and notify you o
 of errors it found and the line number of the first error. It also creates a backup of the log \
 file before it opens the editor, so if need be you can destroy the botched log file and restore \
 the backup. You will have to do this manually. If it finds no errors it will destroy the backup \
-and restore any pre-existing backup it may have found."
+and restore any pre-existing backup it may have found.";
+
+#[derive(Debug, clap::Args)]
+#[command(
+    aliases = ["e", "ed", "edi"],
+    about = "Opens the job log in a text editor",
+    after_help = AFTER_HELP,
+    after_long_help = AFTER_HELP
+)]
+pub struct Args {
+    /// Validates the entire log, commenting out invalid lines
+    ///
+    /// If you have reason to believe your log has invalid lines -- if, \
+    /// for instance, you edited it without using this subcommand -- \
+    /// you can validate and clean it using --validate.
+    #[arg(long, conflicts_with = "error_comments")]
+    pub validate: bool,
+
+    /// Finds comment lines marking errors
+    ///
+    /// After validation some lines may be marked as invalid. This means the lines themselves \
+    /// are converted into comments preceded by comments beginning '# ERROR'. Ideally one \
+    /// immediately fixes these errors, removing the error markers. --error-comments checks whether any remain.
+    #[arg(long, short = 'e', conflicts_with = "validate")]
+    pub error_comments: bool,
 }
 
-pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
-    mast.subcommand(
-        SubCommand::with_name("edit")
-            .aliases(&["e", "ed", "edi"])
-            .about("Opens the job log in a text editor")
-            .after_help(after_help())
-            .display_order(display_order)
-            .arg(
-                Arg::with_name("validate")
-                .long("validate")
-                .help("Validates the entire log, commenting out invalid lines")
-                .long_help("If you have reason to believe your log has invalid lines -- if, \
-                for instance, you edited it without using this subcommand -- \
-                you can validate and clean it using --validate.")
-                .conflicts_with("error-comments")
-            )
-            .arg(
-                Arg::with_name("error-comments")
-                .long("error-comments")
-                .short("e")
-                .help("Finds comment lines marking errors")
-                .long_help("After validation some lines may be marked as invalid. This means the lines themselves \
-                are converted into comments preceded by comments beginning '# ERROR'. Ideally one \
-                immediately fixes these errors, removing the error markers. --error-comments checks whether any remain.")
-                .conflicts_with("validate")
-            )
-    )
-}
-
-pub fn run(directory: Option<&str>, matches: &ArgMatches) {
+pub fn run(directory: Option<&str>, args: &Args) {
     let conf = Configuration::read(None, directory);
-    if matches.is_present("validate") {
+    if args.validate {
         validation_messages(0, 0, &conf, None, None, None);
-    } else if matches.is_present("error-comments") {
-        let mut log = LogController::new(None, &conf).expect("could not open log for validation");
+    } else if args.error_comments {
+        let log = LogController::new(None, &conf).expect("could not open log for validation");
         let mut error_lines: Vec<String> = vec![];
         for item in log.items() {
-            match item {
-                Item::Comment(line_offset) => {
-                    let line = log
-                        .larry
-                        .get(line_offset)
-                        .expect(&format!("failed to read line {}", line_offset + 1));
-                    if line.starts_with("# ERROR") {
-                        error_lines.push((line_offset + 1).to_string());
-                    }
+            if let Item::Comment(line_offset) = item {
+                let line = log
+                    .larry
+                    .get(line_offset)
+                    .unwrap_or_else(|_| panic!("failed to read line {}", line_offset + 1));
+                if line.starts_with("# ERROR") {
+                    error_lines.push((line_offset + 1).to_string());
                 }
-                _ => (),
             }
         }
         if error_lines.is_empty() {
             success("no error comments found", &conf);
-        } else {
-            if error_lines.len() == 1 {
-                warn(
-                    format!("found an error comment at line {}", error_lines[0]),
-                    &conf,
-                )
-            } else {
-                let list = error_lines.join(", ");
-                warn(
-                    format!("found error comments at these lines: {}", list),
-                    &conf,
-                );
-            }
-        }
-    } else {
-        if let Some((mut args, _)) = conf.effective_editor() {
-            let editor = args.remove(0);
-            let mut command = Command::new(&editor);
-            while !args.is_empty() {
-                command.arg(args.remove(0));
-            }
-            let backed_up_backup = backup_backup(conf.directory());
-            copy(log_path(conf.directory()), backup(None, conf.directory()))
-                .expect("could not make backup log");
-            let status = command
-                .arg(
-                    log_path(conf.directory())
-                        .to_str()
-                        .expect("failed to obtain log path"),
-                )
-                .status()
-                .expect("failed to start editor process");
-            if status.success() {
-                if let Some((offset, line_number)) =
-                    find_change_offset(None, None, conf.directory())
-                {
-                    validation_messages(offset, line_number, &conf, None, None, None);
-                } else {
-                    success("no change found in log file; deleting backup...", &conf);
-                    restore_backup(backed_up_backup, conf.directory());
-                }
-            } else {
-                fatal(
-                    "the editor closed with an error; restoring log file from backup",
-                    &conf,
-                );
-                copy(backup(None, conf.directory()), log_path(conf.directory()))
-                    .expect("could not restore log from backup");
-                restore_backup(backed_up_backup, conf.directory());
-                println!("done");
-            }
-        } else {
-            fatal(
-                "no text editor available; see `job configure --help`",
+        } else if error_lines.len() == 1 {
+            warn(
+                format!("found an error comment at line {}", error_lines[0]),
                 &conf,
             )
+        } else {
+            let list = error_lines.join(", ");
+            warn(
+                format!("found error comments at these lines: {}", list),
+                &conf,
+            );
         }
+    } else if let Some((mut args, _)) = conf.effective_editor() {
+        let editor = args.remove(0);
+        let mut command = Command::new(&editor);
+        for arg in args {
+            command.arg(arg);
+        }
+        let backed_up_backup = backup_backup(conf.directory());
+        copy(log_path(conf.directory()), backup(None, conf.directory()))
+            .expect("could not make backup log");
+        let status = command
+            .arg(
+                log_path(conf.directory())
+                    .to_str()
+                    .expect("failed to obtain log path"),
+            )
+            .status()
+            .expect("failed to start editor process");
+        if status.success() {
+            if let Some((offset, line_number)) = find_change_offset(None, None, conf.directory()) {
+                validation_messages(offset, line_number, &conf, None, None, None);
+            } else {
+                success("no change found in log file; deleting backup...", &conf);
+                restore_backup(backed_up_backup, conf.directory());
+            }
+        } else {
+            copy(backup(None, conf.directory()), log_path(conf.directory()))
+                .expect("could not restore log from backup");
+            restore_backup(backed_up_backup, conf.directory());
+            fatal(
+                "the editor closed with an error; restoring log file from backup",
+                &conf,
+            );
+        }
+    } else {
+        fatal(
+            "no text editor available; see `job configure --help`",
+            &conf,
+        )
     }
 }
 
@@ -201,7 +181,7 @@ fn find_change_offset(
 // backup log file
 fn backup(file: Option<&str>, directory: Option<&str>) -> PathBuf {
     if let Some(file) = file {
-        PathBuf::from_str(file).expect(&format!("could not create path from {}", file))
+        PathBuf::from(file)
     } else {
         let mut backup = base_dir(directory);
         backup.push("log.bak");
@@ -218,7 +198,7 @@ fn backup_backup_file(directory: Option<&str>) -> PathBuf {
 
 fn validation_file(file: Option<&str>, directory: Option<&str>) -> PathBuf {
     if let Some(file) = file {
-        PathBuf::from_str(file).expect(&format!("could not create path from {}", file))
+        PathBuf::from(file)
     } else {
         let mut validation_file_path = base_dir(directory);
         validation_file_path.push("log.validation");
@@ -228,7 +208,7 @@ fn validation_file(file: Option<&str>, directory: Option<&str>) -> PathBuf {
 
 fn log_file(file: Option<&str>, directory: Option<&str>) -> PathBuf {
     if let Some(path) = file {
-        PathBuf::from_str(path).expect(&format!("could not create a path with {}", path))
+        PathBuf::from(path)
     } else {
         log_path(directory)
     }
@@ -261,20 +241,16 @@ fn validation_messages(
                     conf,
                 )
             }
-        } else {
-            if !testing {
-                warn(format!("one error was found at line {}", line_number), conf)
-            }
+        } else if !testing {
+            warn(format!("one error was found at line {}", line_number), conf)
         }
         copy(
             validation_file(validation_file_name, conf.directory()),
             log_file(log, conf.directory()),
         )
         .expect("could not copy validation file to log");
-    } else {
-        if !testing {
-            success("log is valid", conf);
-        }
+    } else if !testing {
+        success("log is valid", conf);
     }
     if backup_backup_file(conf.directory()).as_path().exists() {
         std::fs::remove_file(backup_backup_file(conf.directory()))
@@ -300,44 +276,42 @@ fn validate(
         .expect("could not open file to receive validation output");
     let mut writer = BufWriter::new(validation_file);
     let mut bytes_written: usize = 0;
+    let mut buffer = vec![0u8; BUFFER_SIZE];
     // fill up the validation file up to the offset without validating
     while bytes_written < byte_offset {
-        let delta = byte_offset - bytes_written;
-        let mut buffer: Vec<u8> = if delta < BUFFER_SIZE {
-            vec![0; delta]
-        } else {
-            vec![0; BUFFER_SIZE]
-        };
+        let delta = (byte_offset - bytes_written).min(BUFFER_SIZE);
         reader
-            .read_exact(&mut buffer)
+            .read_exact(&mut buffer[..delta])
             .expect("could not read from log file");
-        bytes_written += buffer.len();
+        bytes_written += delta;
         writer
-            .write_all(&buffer)
+            .write_all(&buffer[..delta])
             .expect("could not write to validation file");
     }
     // now start validating
-    let mut buffer = String::new();
+    let mut line_buffer = String::new();
     let mut seen_done = false;
     let mut line_number = starting_line;
     let mut first_error = 0;
     let mut error_count = 0;
     let mut open_task = false;
-    let now = now.unwrap_or(Local::now().naive_local());
+    let now = now.unwrap_or_else(|| Local::now().naive_local());
     let mut log = LogController::new(Some(log_file(log, conf.directory())), conf)
         .expect("could not open edited log file");
     let mut last_timestamp = log
         .items_before(starting_line)
         .find(|i| i.has_time())
-        .and_then(|i| Some(i.time().unwrap().0.clone()));
+        .map(|i| i.time().unwrap().0.to_owned());
     loop {
-        let bytes_read = reader.read_line(&mut buffer).expect("could not read line");
+        let bytes_read = reader
+            .read_line(&mut line_buffer)
+            .expect("could not read line");
         if bytes_read == 0 {
             break;
         }
         let mut error_message: Option<String> = None;
         let mut time: Option<NaiveDateTime> = None;
-        let item = parse_line(&buffer, line_number);
+        let item = parse_line(&line_buffer, line_number);
         match item {
             Item::Note(n, _) => {
                 time = Some(n.time);
@@ -352,14 +326,10 @@ fn validate(
                         error_message = Some("DONE without preceding event".to_owned());
                     } else {
                         // look back to see if there are events before the first change
-                        let prev = log.items_before(starting_line).find(|i| match i {
-                            Item::Done(_, _) | Item::Event(_, _) => true,
-                            _ => false,
-                        });
-                        let bad = match prev {
-                            Some(Item::Event(_, _)) | None => false,
-                            _ => true,
-                        };
+                        let prev = log
+                            .items_before(starting_line)
+                            .find(|i| matches!(i, Item::Done(_, _) | Item::Event(_, _)));
+                        let bad = !matches!(prev, Some(Item::Event(_, _)) | None);
                         if bad {
                             error_message = Some("DONE without preceding event".to_owned());
                         }
@@ -408,12 +378,12 @@ fn validate(
                 .write_all(&bytes)
                 .expect("failed to write error message to validation file");
         }
-        let bytes: Vec<u8> = buffer.bytes().collect();
+        let bytes: Vec<u8> = line_buffer.bytes().collect();
         writer
             .write_all(&bytes)
             .expect("failed to write line to validation file");
         line_number += 1;
-        buffer.clear();
+        line_buffer.clear();
     }
     if error_count > 0 {
         Some((first_error, error_count))
@@ -422,8 +392,6 @@ fn validate(
     }
 }
 
-// find_change_offset(log: Option<&str>, backup_file: Option<&str>)
-// validation_messages(byte_offset: usize, starting_line: usize, conf: &Configuration, log: Option<&str>, validation_file_name: Option<&str>)
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -439,7 +407,7 @@ mod tests {
         Error(&'a str),
     }
 
-    impl<'a> Stub<'a> {
+    impl Stub<'_> {
         fn make(&self, base_time: &NaiveDateTime) -> String {
             match self {
                 Stub::E(duration) => {
@@ -467,20 +435,19 @@ mod tests {
         lines: &[Stub],
     ) -> (String, PathBuf, Vec<usize>) {
         let disambiguator = format!("log_{}", disambiguator);
-        let log_buffer = PathBuf::from_str(&disambiguator)
-            .expect(&format!("could not create log file for {}", disambiguator));
+        let log_buffer = PathBuf::from(&disambiguator);
         let file = File::create(log_buffer.as_path())
-            .expect("could not open file to receive validation output");
+            .unwrap_or_else(|_| panic!("could not create log file for {}", disambiguator));
         let mut writer = BufWriter::new(file);
         let mut offsets = vec![];
         let mut offset = 0;
         let newline_length = "\n".len();
         for line in lines {
-            offsets.push(offset.clone());
+            offsets.push(offset);
             let line = line.make(base_time);
             offset += line.len() + newline_length;
             writeln!(writer, "{}", line)
-                .expect(&format!("faile to write {} into {}", line, disambiguator));
+                .unwrap_or_else(|_| panic!("faile to write {} into {}", line, disambiguator));
         }
         (disambiguator, log_buffer, offsets)
     }
@@ -494,7 +461,7 @@ mod tests {
     }
 
     fn configuration_path(disambiguator: &str) -> PathBuf {
-        PathBuf::from_str(&format!("{}_configuration", disambiguator)).expect("could not make path")
+        PathBuf::from(format!("{}_configuration", disambiguator))
     }
 
     fn test_configuration(disambiguator: &str) -> (PathBuf, Configuration) {
@@ -505,7 +472,8 @@ mod tests {
     }
 
     fn lines(file: &PathBuf) -> Vec<String> {
-        let file = File::open(file).expect(&format!("could not open {}", file.to_str().unwrap()));
+        let file = File::open(file)
+            .unwrap_or_else(|_| panic!("could not open {}", file.to_str().unwrap()));
         let mut reader = BufReader::new(file);
         let mut ret = Vec::new();
         loop {
@@ -522,7 +490,10 @@ mod tests {
     fn test_find_change_offset_when_no_change() {
         let disambiguator1 = "test_find_change_offset_when_no_change1";
         let disambiguator2 = "test_find_change_offset_when_no_change2";
-        let t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
+        let t = NaiveDate::from_ymd_opt(2000, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
         let lines = [Stub::C, Stub::B, Stub::E(1), Stub::N(2), Stub::D(3)];
         let (n1, log1, _) = create_log(disambiguator1, &t, &lines);
         let (n2, log2, _) = create_log(disambiguator2, &t, &lines);
@@ -535,7 +506,10 @@ mod tests {
     fn test_find_change_offset_with_change() {
         let disambiguator1 = "test_find_change_offset_with_change1";
         let disambiguator2 = "test_find_change_offset_with_change2";
-        let t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
+        let t = NaiveDate::from_ymd_opt(2000, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
         let lines = [Stub::E(1), Stub::N(2), Stub::D(3)];
         let (n1, log1, _) = create_log(disambiguator1, &t, &lines);
         let (n2, log2, _) = create_log(disambiguator2, &t, &lines[0..2]);
@@ -549,9 +523,12 @@ mod tests {
     fn test_validation_messages_all_good() {
         let disambiguator = "test_validation_messages_all_good";
         let validation = format!("validation_{}", disambiguator);
-        let validation_path = PathBuf::from_str(&validation).expect("could not make path");
+        let validation_path = PathBuf::from(&validation);
         let (conf_path, conf) = test_configuration(disambiguator);
-        let t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
+        let t = NaiveDate::from_ymd_opt(2000, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
         let events = [Stub::E(0), Stub::E(1), Stub::E(2)];
         let now = t + Duration::weeks(1);
         let (name, buff, _) = create_log(disambiguator, &t, &events);
@@ -559,7 +536,7 @@ mod tests {
         let (backup_name, backup_buff, _) = create_log(&backup_name, &t, &events);
         validation_messages(0, 0, &conf, Some(&name), Some(&backup_name), Some(now));
         let lines = lines(&buff);
-        assert!(lines.iter().find(|&s| s.contains("ERROR")).is_none());
+        assert!(!lines.iter().any(|s| s.contains("ERROR")));
         cleanup(vec![buff, backup_buff, conf_path, validation_path]);
     }
 
@@ -567,9 +544,12 @@ mod tests {
     fn test_validation_messages_garbled_line() {
         let disambiguator = "test_validation_messages_garbled_line";
         let validation = format!("validation_{}", disambiguator);
-        let validation_path = PathBuf::from_str(&validation).expect("could not make path");
+        let validation_path = PathBuf::from(&validation);
         let (conf_path, conf) = test_configuration(disambiguator);
-        let t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
+        let t = NaiveDate::from_ymd_opt(2000, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
         let events = [Stub::E(0), Stub::E(1), Stub::E(2), Stub::Error("foo")];
         let now = t + Duration::weeks(1);
         let (name, buff, _) = create_log(disambiguator, &t, &events);
@@ -577,7 +557,7 @@ mod tests {
         let (backup_name, backup_buff, _) = create_log(&backup_name, &t, &events);
         validation_messages(0, 0, &conf, Some(&name), Some(&backup_name), Some(now));
         let lines = lines(&buff);
-        assert!(lines.iter().find(|&s| s.contains("ERROR")).is_some());
+        assert!(lines.iter().any(|s| s.contains("ERROR")));
         assert!(lines[3].contains("unexpected line format"));
         cleanup(vec![buff, backup_buff, conf_path, validation_path]);
     }
@@ -586,9 +566,12 @@ mod tests {
     fn test_validation_messages_done_without_event() {
         let disambiguator = "test_validation_messages_done_without_event";
         let validation = format!("validation_{}", disambiguator);
-        let validation_path = PathBuf::from_str(&validation).expect("could not make path");
+        let validation_path = PathBuf::from(&validation);
         let (conf_path, conf) = test_configuration(disambiguator);
-        let t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
+        let t = NaiveDate::from_ymd_opt(2000, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
         let events = [Stub::D(0), Stub::D(1), Stub::D(2)];
         let now = t + Duration::weeks(1);
         let (name, buff, _) = create_log(disambiguator, &t, &events);
@@ -596,7 +579,7 @@ mod tests {
         let (backup_name, backup_buff, _) = create_log(&backup_name, &t, &events);
         validation_messages(0, 0, &conf, Some(&name), Some(&backup_name), Some(now));
         let lines = lines(&buff);
-        assert!(lines.iter().find(|&s| s.contains("ERROR")).is_some());
+        assert!(lines.iter().any(|s| s.contains("ERROR")));
         assert!(lines[0].contains("DONE without preceding event"));
         cleanup(vec![buff, backup_buff, conf_path, validation_path]);
     }
@@ -605,9 +588,12 @@ mod tests {
     fn test_validation_messages_done_with_offset() {
         let disambiguator = "test_validation_messages_done_with_offset";
         let validation = format!("validation_{}", disambiguator);
-        let validation_path = PathBuf::from_str(&validation).expect("could not make path");
+        let validation_path = PathBuf::from(&validation);
         let (conf_path, conf) = test_configuration(disambiguator);
-        let t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
+        let t = NaiveDate::from_ymd_opt(2000, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
         let events = [Stub::E(0), Stub::D(1), Stub::E(2)];
         let now = t + Duration::weeks(1);
         let (name, buff, offsets) = create_log(disambiguator, &t, &events);
@@ -622,7 +608,7 @@ mod tests {
             Some(now),
         );
         let lines = lines(&buff);
-        assert!(lines.iter().find(|&s| s.contains("ERROR")).is_none());
+        assert!(!lines.iter().any(|s| s.contains("ERROR")));
         cleanup(vec![buff, backup_buff, conf_path, validation_path]);
     }
 
@@ -630,9 +616,12 @@ mod tests {
     fn test_validation_messages_done_with_offset_error() {
         let disambiguator = "test_validation_messages_done_with_offset_error";
         let validation = format!("validation_{}", disambiguator);
-        let validation_path = PathBuf::from_str(&validation).expect("could not make path");
+        let validation_path = PathBuf::from(&validation);
         let (conf_path, conf) = test_configuration(disambiguator);
-        let t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
+        let t = NaiveDate::from_ymd_opt(2000, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
         let events = [Stub::E(1), Stub::D(0), Stub::E(2)];
         let now = t + Duration::weeks(1);
         let (name, buff, offsets) = create_log(disambiguator, &t, &events);
@@ -647,7 +636,7 @@ mod tests {
             Some(now),
         );
         let lines = lines(&buff);
-        assert!(lines.iter().find(|&s| s.contains("ERROR")).is_some());
+        assert!(lines.iter().any(|s| s.contains("ERROR")));
         cleanup(vec![buff, backup_buff, conf_path, validation_path]);
     }
 
@@ -655,9 +644,12 @@ mod tests {
     fn test_validation_messages_done_after_done() {
         let disambiguator = "test_validation_messages_done_after_done";
         let validation = format!("validation_{}", disambiguator);
-        let validation_path = PathBuf::from_str(&validation).expect("could not make path");
+        let validation_path = PathBuf::from(&validation);
         let (conf_path, conf) = test_configuration(disambiguator);
-        let t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
+        let t = NaiveDate::from_ymd_opt(2000, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
         let events = [Stub::E(0), Stub::D(1), Stub::D(2)];
         let now = t + Duration::weeks(1);
         let (name, buff, _) = create_log(disambiguator, &t, &events);
@@ -665,7 +657,7 @@ mod tests {
         let (backup_name, backup_buff, _) = create_log(&backup_name, &t, &events);
         validation_messages(0, 0, &conf, Some(&name), Some(&backup_name), Some(now));
         let lines = lines(&buff);
-        assert!(lines.iter().find(|&s| s.contains("ERROR")).is_some());
+        assert!(lines.iter().any(|s| s.contains("ERROR")));
         cleanup(vec![buff, backup_buff, conf_path, validation_path]);
     }
 
@@ -673,9 +665,12 @@ mod tests {
     fn test_events_out_of_order() {
         let disambiguator = "test_events_out_of_order";
         let validation = format!("validation_{}", disambiguator);
-        let validation_path = PathBuf::from_str(&validation).expect("could not make path");
+        let validation_path = PathBuf::from(&validation);
         let (conf_path, conf) = test_configuration(disambiguator);
-        let t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
+        let t = NaiveDate::from_ymd_opt(2000, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
         let events = [Stub::E(1), Stub::E(0), Stub::E(2)];
         let now = t + Duration::weeks(1);
         let (name, buff, _) = create_log(disambiguator, &t, &events);
@@ -683,7 +678,7 @@ mod tests {
         let (backup_name, backup_buff, _) = create_log(&backup_name, &t, &events);
         validation_messages(0, 0, &conf, Some(&name), Some(&backup_name), Some(now));
         let lines = lines(&buff);
-        assert!(lines.iter().find(|&s| s.contains("ERROR")).is_some());
+        assert!(lines.iter().any(|s| s.contains("ERROR")));
         assert!(lines[1].contains("timestamp out of order with earlier timestamp"));
         cleanup(vec![buff, backup_buff, conf_path, validation_path]);
     }
@@ -692,9 +687,12 @@ mod tests {
     fn test_events_out_of_order_with_offset() {
         let disambiguator = "test_events_out_of_order_with_offset";
         let validation = format!("validation_{}", disambiguator);
-        let validation_path = PathBuf::from_str(&validation).expect("could not make path");
+        let validation_path = PathBuf::from(&validation);
         let (conf_path, conf) = test_configuration(disambiguator);
-        let t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
+        let t = NaiveDate::from_ymd_opt(2000, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
         let events = [Stub::E(1), Stub::E(0), Stub::E(2)];
         let now = t + Duration::weeks(1);
         let (name, buff, offsets) = create_log(disambiguator, &t, &events);
@@ -709,7 +707,7 @@ mod tests {
             Some(now),
         );
         let lines = lines(&buff);
-        assert!(lines.iter().find(|&s| s.contains("ERROR")).is_some());
+        assert!(lines.iter().any(|s| s.contains("ERROR")));
         assert!(lines[1].contains("timestamp out of order with earlier timestamp"));
         cleanup(vec![buff, backup_buff, conf_path, validation_path]);
     }
@@ -718,9 +716,12 @@ mod tests {
     fn test_events_in_future() {
         let disambiguator = "test_events_in_future";
         let validation = format!("validation_{}", disambiguator);
-        let validation_path = PathBuf::from_str(&validation).expect("could not make path");
+        let validation_path = PathBuf::from(&validation);
         let (conf_path, conf) = test_configuration(disambiguator);
-        let t = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0);
+        let t = NaiveDate::from_ymd_opt(2000, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
         let now = t - Duration::weeks(1);
         let events = [Stub::E(0), Stub::E(1), Stub::E(2)];
         let (name, buff, _) = create_log(disambiguator, &t, &events);
@@ -728,7 +729,7 @@ mod tests {
         let (backup_name, backup_buff, _) = create_log(&backup_name, &t, &events);
         validation_messages(0, 0, &conf, Some(&name), Some(&backup_name), Some(now));
         let lines = lines(&buff);
-        assert!(lines.iter().find(|&s| s.contains("ERROR")).is_some());
+        assert!(lines.iter().any(|s| s.contains("ERROR")));
         assert!(lines[0].contains("timestamp in future"));
         cleanup(vec![buff, backup_buff, conf_path, validation_path]);
     }
@@ -737,9 +738,12 @@ mod tests {
     fn test_bad_timestamp() {
         let disambiguator = "test_bad_timestamp";
         let validation = format!("validation_{}", disambiguator);
-        let validation_path = PathBuf::from_str(&validation).expect("could not make path");
+        let validation_path = PathBuf::from(&validation);
         let (conf_path, conf) = test_configuration(disambiguator);
-        let t = NaiveDate::from_ymd(2020, 5, 1).and_hms(0, 0, 0);
+        let t = NaiveDate::from_ymd_opt(2020, 5, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
         let events = [Stub::Error("2020  5  7  38 38 47::38 hours doesn't work")];
         let now = t + Duration::weeks(1);
         let (name, buff, _) = create_log(disambiguator, &t, &events);
@@ -747,7 +751,7 @@ mod tests {
         let (backup_name, backup_buff, _) = create_log(&backup_name, &t, &events);
         validation_messages(0, 0, &conf, Some(&name), Some(&backup_name), Some(now));
         let lines = lines(&buff);
-        assert!(lines.iter().find(|&s| s.contains("ERROR")).is_some());
+        assert!(lines.iter().any(|s| s.contains("ERROR")));
         assert!(lines[0].contains("bad hour: 38"));
         cleanup(vec![buff, backup_buff, conf_path, validation_path]);
     }

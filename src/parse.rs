@@ -1,16 +1,10 @@
-extern crate chrono;
-extern crate clap;
-extern crate colonnade;
-extern crate two_timer;
-
 use crate::configure::Configuration;
-use crate::util::{fatal, remainder, some_nws, Style};
-use clap::{App, Arg, ArgMatches, SubCommand};
+use crate::util::{fatal, some_nws, Style};
+
 use colonnade::Colonnade;
 use two_timer::parse;
 
-fn after_help() -> &'static str {
-    "\
+pub const AFTER_HELP: &str = "\
 Natural language time expressions are easy to produce, but it isn't always obvious \
 what fully-specified times they correspond to. Sometimes you may want to know this before \
 you give one to Job Log. Perhaps you summarize the log for a particular period and the \
@@ -45,50 +39,39 @@ Both grammars are from https://github.com/dfhoughton/two-timer. You can find lis
 expressions at this URL and, in the source code, the actual grammars.
 
 All prefixes of 'parse-time' are aliases of the subcommand.
-"
+";
+
+#[derive(Debug, clap::Args)]
+#[command(
+    aliases = [
+        "p", "pa", "par", "pars", "parse", "parse-", "parse-t", "parse-ti", "parse-tim"
+    ],
+    about = "Shows the start and end timestamps you get from a particular time expression",
+    after_help = AFTER_HELP,
+    after_long_help = AFTER_HELP
+)]
+pub struct Args {
+    /// time expression
+    ///
+    /// A time expression. E.g., 'last week' or '2016-10-2'.
+    #[arg(value_name = "word", num_args = 0..)]
+    pub period: Vec<String>,
 }
 
-pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
-    mast.subcommand(
-        SubCommand::with_name("parse-time")
-            .aliases(&[
-                "p",
-                "pa",
-                "par",
-                "pars",
-                "parse",
-                "parse-",
-                "parse-t",
-                "parse-ti",
-                "parse-tim",
-            ])
-            .about("Shows the start and end timestamps you get from a particular time expression")
-            .after_help(after_help())
-            .arg(
-                Arg::with_name("period")
-                    .help("time expression")
-                    .long_help("A time expression. E.g., 'last week' or '2016-10-2'.")
-                    .value_name("word")
-                    .multiple(true),
-            )
-            .display_order(display_order),
-    )
-}
-
-pub fn run(directory: Option<&str>, matches: &ArgMatches) {
+pub fn run(directory: Option<&str>, args: &Args) {
     let conf = Configuration::read(None, directory);
-    if !matches.is_present("period") {
+    if args.period.is_empty() {
         fatal("no time expression provided", &conf);
     }
-    let phrase = remainder("period", matches);
+    let phrase = args.period.join(" ");
     if some_nws(&phrase) {
-        match parse(&phrase.trim(), conf.two_timer_config()) {
-            Ok((start, end, range)) => {
+        match parse(phrase.trim(), conf.two_timer_config()) {
+            Ok(range) => {
                 let style = Style::new(&conf);
                 let data = [
-                    [String::from("start"), format!("{}", start)],
-                    [String::from("end"), format!("{}", end)],
-                    [String::from("explicit end"), format!("{}", range)],
+                    [String::from("start"), format!("{}", range.start)],
+                    [String::from("end"), format!("{}", range.end)],
+                    [String::from("explicit end"), format!("{}", range.is_range)],
                 ];
                 let mut table = Colonnade::new(2, conf.width()).unwrap();
                 println!();

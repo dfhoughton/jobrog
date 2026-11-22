@@ -1,26 +1,19 @@
-extern crate chrono;
-extern crate clap;
-extern crate colonnade;
-extern crate pidgin;
-extern crate regex;
-extern crate two_timer;
-
 use crate::configure::Configuration;
 use crate::log::{parse_tags, parse_timestamp, tags, timestamp, Event, Filter};
-use crate::util::{base_dir, fatal, remainder, some_nws, success, warn, Style};
+use crate::util::{base_dir, fatal, success, valid_tag, valid_time_expression, warn, Style};
 use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, Timelike};
-use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+
 use colonnade::{Alignment, Colonnade};
-use pidgin::{Grammar, Matcher};
 use regex::Regex;
 use std::cmp::Ordering;
 use std::fs::{copy, File};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::PathBuf;
-use two_timer::{parsable, parse};
+use std::str::FromStr;
+use std::sync::LazyLock;
+use two_timer::parse;
 
-fn after_help() -> &'static str {
-    "\
+pub const AFTER_HELP: &str = "\
 Vacation time is the dark matter of the log. It is not stored in the log and it can be simultaneous with \
 logged events inasmuch as it occurs on particular days when logged events also occur, but it generally doesn't \
 have specific start and end times.
@@ -62,22 +55,37 @@ Note, the Rust version of JobLog is adding some features to vacations: on and of
 Because of this you will not be able to use the vacation file with the Perl client after you add repeating vacations.
 
 All prefixes of 'vacation' are aliases of the subcommand.
-"
-}
+";
+
+// a vacation file timestamp: a four-digit year, two one- or two-digit fields with no
+// leading zero, and three fields that may be zero, all separated by whitespace
+static VACATION_TIMESTAMP_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\A\s*[1-9]\d{3}(?:\s+[1-9]\d?){2}(?:\s+(?:0|[1-9]\d?)){3}\s*\z").unwrap()
+});
+
+// tags may contain escaped colons but no unescaped colons or '<'
+static VACATION_TAGS_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\A(?:\\.|[^:<\\])*\z").unwrap());
+
+// descriptions may contain escaped colons but no unescaped colons
+static VACATION_DESCRIPTION_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\A(?:\\.|[^:\\])*\z").unwrap());
 
 // used in three places, so it's factored out
-fn over_as_of_rx() -> Regex {
-    Regex::new(r"\A(\d+)(?:\s+(\S.*?)\s*)?\z").unwrap()
+fn over_as_of_rx() -> &'static LazyLock<Regex> {
+    static RX: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"\A(\d+)(?:\s+(\S.*?)\s*)?\z").unwrap());
+    &RX
 }
 
-fn number_date_validator(v: String) -> Result<(), String> {
-    if let Some(captures) = over_as_of_rx().captures(&v) {
-        let index = captures[1].to_owned();
+fn number_date_validator(v: &str) -> Result<String, String> {
+    if let Some(captures) = over_as_of_rx().captures(v) {
+        let index = &captures[1];
         if index.parse::<usize>().is_ok() {
             if let Some(s) = captures.get(2) {
                 let date = s.as_str();
-                if parsable(date) {
-                    Ok(())
+                if two_timer::parsable(date) {
+                    Ok(v.to_owned())
                 } else {
                     Err(format!(
                         "data expression in '{}', '{}', cannot be parsed",
@@ -85,7 +93,7 @@ fn number_date_validator(v: String) -> Result<(), String> {
                     ))
                 }
             } else {
-                Ok(())
+                Ok(v.to_owned())
             }
         } else {
             Err(String::from("bad format for number"))
@@ -95,131 +103,140 @@ fn number_date_validator(v: String) -> Result<(), String> {
     }
 }
 
-pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
-    mast.subcommand(
-        SubCommand::with_name("vacation")
-            .aliases(&["v", "va", "vac", "vaca", "vacat", "vacati", "vacatio"])
-            .about("Records vacation time")
-            .after_help(after_help())
-            .arg(
-                Arg::with_name("add")
-                .short("a")
-                .long("add")
-                .help("Adds a vacation record (default action)")
-                .conflicts_with_all(&["delete", "over-as-of", "list", "clear"])
-                .display_order(0)
-            )
-            .arg(
-                Arg::with_name("list")
-                .short("l")
-                .long("list")
-                .help("Lists known vacation periods")
-                .long_help("Just provide an enumerated list of the known vacation periods and do nothing further. This is a useful, probably necessary, precursor to deleting a vacation period.")
-                .conflicts_with_all(&["delete", "over-as-of", "tag", "add", "clear"])
-                .display_order(1)
-            )
-            .arg(
-                Arg::with_name("when")
-                .short("w")
-                .long("when")
-                .help("Sets vacation period")
-                .long_help("The time period of the vacation. Unless the vacation is of the fixed type, only the dates of the time expression will be considered. 'Today at 2 pm' will have the same effect as 'today' or 'now'.")
-                .value_name("period")
-                .validator(|v| if parsable(&v) {Ok(())} else {Err(format!("cannot parse '{}' as a time expression", v))} )
-                .default_value("today")
-                .display_order(2)
-            )
-            .arg(
-                Arg::with_name("tag")
-                .short("t")
-                .long("tag")
-                .multiple(true)
-                .number_of_values(1)
-                .help("Adds this tag to the event")
-                .long_help("A tag is just a short description, like 'religious', or 'family'. Add a tag to a vacation to facilitate filtering during log summaries.")
-                .value_name("tag")
-                .validator(|v| if some_nws(&v) {Ok(())} else {Err(format!("tag {:?} needs some non-whitespace character", v))})
-                .conflicts_with_all(&["list", "delete", "over-as-of", "clear"])
-                .display_order(3)
-            )
-            .arg(
-                Arg::with_name("type")
-                .long("type")
-                .help("Marks the vacation as flex or fixed")
-                .long_help("Flex and fixed vacations cannot repeat. They constrain the vacation period to some subportion of a normal workday. See the full --help text for more details.")
-                .value_name("type")
-                .possible_values(&["ordinary", "fixed", "flex"])
-                .default_value("ordinary")
-                .display_order(4)
-            )
-            .arg(
-                Arg::with_name("repeats")
-                .long("repeats")
-                .help("Marks the vacation as repeating either annually or monthly")
-                .long_help("If you have a vacation that repeats at intervals you may mark it as such. It will be assumed that the repetition can be inferred from either the day of the month (monthly), or the day of the month and the month of the year (annual). Repeating vacations cannot be marked as fixed or flex.")
-                .value_name("period")
-                .possible_values(&["annual", "monthly", "never"])
-                .default_value("never")
-                .display_order(5)
-            )
-            .arg(
-                Arg::with_name("over-as-of")
-                .long("over-as-of")
-                .help("Indicates the end of a repeating vacation")
-                .long_help("If you come to lose a vacation that repeated at intervals -- if you change jobs, for example, and lose a holiday -- this allows you to indicate when the repetition stops. You must identify the affected vacation by its number in the enumerated list (see --list). The date is 'today' by default.")
-                .value_name("number [date]")
-                .validator(number_date_validator)
-                .conflicts_with_all(&["delete", "list", "add", "tag", "clear"])
-                .display_order(6)
-            )
-            .arg(
-                Arg::with_name("effective-as-of")
-                .long("effective-as-of")
-                .help("Indicates when a repeating vacation begins repeating")
-                .long_help("If you gain a vacation that repeats at intervals -- if you change jobs, for example, and gain a holiday -- this allows you to indicate when the repetition begins. You must identify the affected vacation by its number in the enumerated list (see --list). The date is 'today' by default. If you add a new repeating vacation, it will by default become effective immediately. This option is chiefly useful when adding a repeating vacation retroactively.")
-                .value_name("number [date]")
-                .validator(number_date_validator)
-                .conflicts_with_all(&["delete", "list", "add", "tag", "clear"])
-                .display_order(7)
-            )
-            .arg(
-                Arg::with_name("delete")
-                .long("delete")
-                .short("d")
-                .help("Deletes a particular vacation record")
-                .long_help("If you wish to delete a single vacation record altogether, use --delete. You must identify the affected vacation by its number in the enumerated list (see --list).")
-                .value_name("number")
-                .validator(|v| if v.parse::<usize>().is_ok() { Ok(())} else {Err(format!("could not parse {} as a vacation record index", v))})
-                .conflicts_with_all(&["over-as-of", "list", "add", "tag", "clear"])
-                .multiple(true)
-                .number_of_values(1)
-                .display_order(8)
-            )
-            .arg(
-                Arg::with_name("clear")
-                .long("clear")
-                .help("Deletes all vacation records")
-                .conflicts_with_all(&["over-as-of", "list", "add", "tag", "delete"])
-                .display_order(9)
-            )
-            .setting(AppSettings::TrailingVarArg)
-            .arg(
-                Arg::with_name("description")
-                    .help("some phrase identifying the vacation")
-                    .long_help(
-                        "A description of the vacation period. This is required if you are creating a new vacation record.",
-                    )
-                    .value_name("description")
-                    .multiple(true)
-            )
-            .display_order(display_order)
-    )
+fn valid_index(v: &str) -> Result<String, String> {
+    match v.parse::<usize>() {
+        Ok(_) => Ok(v.to_owned()),
+        Err(_) => Err(format!("could not parse {} as a vacation record index", v)),
+    }
 }
 
-pub fn run(directory: Option<&str>, matches: &ArgMatches) {
+#[derive(Debug, clap::Args)]
+#[command(
+    aliases = ["v", "va", "vac", "vaca", "vacat", "vacati", "vacatio"],
+    about = "Records vacation time",
+    after_help = AFTER_HELP,
+    after_long_help = AFTER_HELP,
+    trailing_var_arg = true
+)]
+pub struct Args {
+    /// Adds a vacation record (default action)
+    #[arg(short = 'a', long, conflicts_with_all = ["delete", "over_as_of", "list", "clear"])]
+    pub add: bool,
+
+    /// Lists known vacation periods
+    ///
+    /// Just provide an enumerated list of the known vacation periods and do nothing further. This is a useful,
+    /// probably necessary, precursor to deleting a vacation period.
+    #[arg(short = 'l', long, conflicts_with_all = ["delete", "over_as_of", "tag", "add", "clear"])]
+    pub list: bool,
+
+    /// Sets vacation period
+    ///
+    /// The time period of the vacation. Unless the vacation is of the fixed type, only the dates of the time
+    /// expression will be considered. 'Today at 2 pm' will have the same effect as 'today' or 'now'.
+    #[arg(
+        short = 'w',
+        long,
+        value_name = "period",
+        default_value = "today",
+        value_parser = valid_time_expression
+    )]
+    pub when: String,
+
+    /// Adds this tag to the event
+    ///
+    /// A tag is just a short description, like 'religious', or 'family'. Add a tag to a vacation to facilitate
+    /// filtering during log summaries.
+    #[arg(
+        short = 't',
+        long,
+        value_name = "tag",
+        value_parser = valid_tag,
+        conflicts_with_all = ["list", "delete", "over_as_of", "clear"]
+    )]
+    pub tag: Vec<String>,
+
+    /// Marks the vacation as flex or fixed
+    ///
+    /// Flex and fixed vacations cannot repeat. They constrain the vacation period to some subportion of a
+    /// normal workday. See the full --help text for more details.
+    #[arg(
+        long = "type",
+        value_name = "type",
+        value_parser = ["ordinary", "fixed", "flex"],
+        default_value = "ordinary"
+    )]
+    pub kind: String,
+
+    /// Marks the vacation as repeating either annually or monthly
+    ///
+    /// If you have a vacation that repeats at intervals you may mark it as such. It will be assumed that the
+    /// repetition can be inferred from either the day of the month (monthly), or the day of the month and the
+    /// month of the year (annual). Repeating vacations cannot be marked as fixed or flex.
+    #[arg(
+        long,
+        value_name = "period",
+        value_parser = ["annual", "monthly", "never"],
+        default_value = "never"
+    )]
+    pub repeats: String,
+
+    /// Indicates the end of a repeating vacation
+    ///
+    /// If you come to lose a vacation that repeated at intervals -- if you change jobs, for example, and lose a
+    /// holiday -- this allows you to indicate when the repetition stops. You must identify the affected vacation
+    /// by its number in the enumerated list (see --list). The date is 'today' by default.
+    #[arg(
+        long,
+        value_name = "number [date]",
+        value_parser = number_date_validator,
+        conflicts_with_all = ["delete", "list", "add", "tag", "clear"]
+    )]
+    pub over_as_of: Option<String>,
+
+    /// Indicates when a repeating vacation begins repeating
+    ///
+    /// If you gain a vacation that repeats at intervals -- if you change jobs, for example, and gain a holiday --
+    /// this allows you to indicate when the repetition begins. You must identify the affected vacation by its number
+    /// in the enumerated list (see --list). The date is 'today' by default. If you add a new repeating vacation, it
+    /// will by default become effective immediately. This option is chiefly useful when adding a repeating vacation
+    /// retroactively.
+    #[arg(
+        long,
+        value_name = "number [date]",
+        value_parser = number_date_validator,
+        conflicts_with_all = ["delete", "list", "add", "tag", "clear"]
+    )]
+    pub effective_as_of: Option<String>,
+
+    /// Deletes a particular vacation record
+    ///
+    /// If you wish to delete a single vacation record altogether, use --delete. You must identify the affected
+    /// vacation by its number in the enumerated list (see --list).
+    #[arg(
+        long,
+        short = 'd',
+        value_name = "number",
+        value_parser = valid_index,
+        conflicts_with_all = ["over_as_of", "list", "add", "tag", "clear"]
+    )]
+    pub delete: Vec<String>,
+
+    /// Deletes all vacation records
+    #[arg(long, conflicts_with_all = ["over_as_of", "list", "add", "tag", "delete"])]
+    pub clear: bool,
+
+    /// some phrase identifying the vacation
+    ///
+    /// A description of the vacation period. This is required if you are creating a new vacation record.
+    #[arg(value_name = "description", num_args = 0..)]
+    pub description: Vec<String>,
+}
+
+pub fn run(directory: Option<&str>, args: &Args) {
     let conf = Configuration::read(None, directory);
     let mut controller = VacationController::read(None, conf.directory());
-    if matches.is_present("list") {
+    if args.list {
         if controller.vacations.is_empty() {
             warn("no vacation records", &conf);
         } else {
@@ -235,8 +252,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                 String::from("ended"),
             ]];
             for (i, v) in controller.vacations.iter().enumerate() {
-                let mut row = Vec::with_capacity(9);
-                row.push((i + 1).to_string());
+                let mut row = vec![(i + 1).to_string()];
                 row.push(v.description.to_owned());
                 row.push(v.tags.join(", "));
                 row.push(v.start_description());
@@ -254,9 +270,11 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                 .priority(0)
                 .left_margin(2)
                 .expect("insufficient space for vacation table");
-            table.columns[0].alignment(Alignment::Right).left_margin(0);
-            table.columns[1].priority(1);
-            table.columns[2].priority(2);
+            table.columns[0]
+                .set_alignment(Alignment::Right)
+                .set_left_margin(0);
+            table.columns[1].set_priority(1);
+            table.columns[2].set_priority(2);
             println!();
             for (row_num, row) in table
                 .macerate(data)
@@ -289,54 +307,41 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
             }
             println!();
         }
-    } else if matches.is_present("over-as-of") {
-        let captures = over_as_of_rx()
-            .captures(&matches.value_of("over-as-of").unwrap())
-            .unwrap();
+    } else if let Some(value) = &args.over_as_of {
+        let captures = over_as_of_rx().captures(value).unwrap();
         let index = captures[1].parse::<usize>().unwrap();
-        let date = captures
-            .get(2)
-            .and_then(|m| Some(m.as_str()))
-            .unwrap_or("today");
-        let (date, _, _) = parse(date, conf.two_timer_config()).unwrap();
+        let date = captures.get(2).map(|m| m.as_str()).unwrap_or("today");
+        let range = parse(date, conf.two_timer_config()).unwrap();
+        let date = range.start;
         match controller.set_over_as_of(index, &date) {
             Ok(s) => success(s, &conf),
             Err(s) => fatal(s, &conf),
         }
-    } else if matches.is_present("effective-as-of") {
-        let captures = over_as_of_rx()
-            .captures(&matches.value_of("effective-as-of").unwrap())
-            .unwrap();
+    } else if let Some(value) = &args.effective_as_of {
+        let captures = over_as_of_rx().captures(value).unwrap();
         let index = captures[1].parse::<usize>().unwrap();
-        let date = captures
-            .get(2)
-            .and_then(|m| Some(m.as_str()))
-            .unwrap_or("today");
-        let (date, _, _) = parse(date, conf.two_timer_config()).unwrap();
+        let date = captures.get(2).map(|m| m.as_str()).unwrap_or("today");
+        let range = parse(date, conf.two_timer_config()).unwrap();
+        let date = range.start;
         match controller.set_effective_as_of(index, &date) {
             Ok(s) => success(s, &conf),
             Err(s) => fatal(s, &conf),
         }
-    } else if matches.is_present("delete") || matches.is_present("clear") {
-        let mut rows = if matches.is_present("clear") {
-            controller
-                .vacations
-                .iter()
-                .enumerate()
-                .map(|(i, _)| i + 1)
-                .collect()
+    } else if !args.delete.is_empty() || args.clear {
+        let mut rows = if args.clear {
+            (1..=controller.vacations.len()).collect()
         } else {
-            let mut rows: Vec<usize> = matches
-                .values_of("delete")
-                .unwrap()
+            let mut rows: Vec<usize> = args
+                .delete
+                .iter()
                 .map(|s| s.parse::<usize>().unwrap())
                 .collect();
             rows.sort_unstable();
             rows.dedup();
-            let mut problems: Vec<usize> = (&rows)
+            let mut problems: Vec<usize> = rows
                 .iter()
-                .filter(|&v| v - 1 >= controller.vacations.len())
-                .map(|v| v.to_owned())
+                .filter(|&v| *v == 0 || *v > controller.vacations.len())
+                .copied()
                 .collect();
             if !problems.is_empty() {
                 if problems.len() > 1 {
@@ -368,35 +373,29 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                 Err(e) => fatal(e, &conf),
             }
         }
-    } else {
-        if matches.is_present("description") {
-            let description = remainder("description", matches);
-            let tags: Vec<String> = if let Some(values) = matches.values_of("tag") {
-                values.map(|s| s.to_string()).collect()
-            } else {
-                Vec::new()
-            };
-            let (start, end, _) =
-                parse(matches.value_of("when").unwrap(), conf.two_timer_config()).unwrap();
-            let (description, recorded) = controller.record(
-                description,
-                tags,
-                start,
-                end,
-                matches.value_of("type"),
-                matches.value_of("repeats"),
-            );
-            if recorded {
-                success(format!("added {}", description), &conf);
-            } else {
-                fatal(description, &conf)
-            }
+    } else if !args.description.is_empty() {
+        let description = args.description.join(" ");
+        let tags: Vec<String> = args.tag.clone();
+        let range = parse(&args.when, conf.two_timer_config()).unwrap();
+        let (start, end) = (range.start, range.end);
+        let (description, recorded) = controller.record(
+            description,
+            tags,
+            start,
+            end,
+            Some(&args.kind),
+            Some(&args.repeats),
+        );
+        if recorded {
+            success(format!("added {}", description), &conf);
         } else {
-            fatal(
-                "You must provide some decription when creating a vacation record.",
-                &conf,
-            )
+            fatal(description, &conf)
         }
+    } else {
+        fatal(
+            "You must provide some decription when creating a vacation record.",
+            &conf,
+        )
     }
     controller.write();
 }
@@ -418,7 +417,7 @@ impl VacationController {
     // fetch vacation information in from file
     // the option argument facilitates testing
     pub fn read(path: Option<PathBuf>, directory: Option<&str>) -> VacationController {
-        let path = path.unwrap_or(vacation_path(directory));
+        let path = path.unwrap_or_else(|| vacation_path(directory));
         let path_str = path.to_str().expect("cannot stringify path").to_owned();
         if path.as_path().exists() {
             let file = File::open(path).expect("could not open vacation file");
@@ -467,7 +466,7 @@ impl VacationController {
         &self,
         start: &NaiveDateTime,
         end: &NaiveDateTime,
-        mut events: Vec<Event>, // these events *must be grouped by day*
+        events: Vec<Event>, // these events *must be grouped by day*
         conf: &Configuration,
         now: Option<NaiveDateTime>,
         filter: &Filter,
@@ -478,34 +477,37 @@ impl VacationController {
         let mut new_events = Vec::new();
         let mut date = start.date();
         let end_date = end.date();
-        let now = now.unwrap_or(Local::now().naive_local());
-        let end_date = if now.date() < end_date { now.date() + Duration::days(1) } else { end_date };
+        let now = now.unwrap_or_else(|| Local::now().naive_local());
+        let end_date = if now.date() < end_date {
+            now.date() + Duration::days(1)
+        } else {
+            end_date
+        };
         let sorted_records = self.sorted_vacation_records();
+        let mut events = events.into_iter().peekable();
         while date < end_date {
             let mut seconds_worked = 0;
-            while events.len() > 0 && events[0].start.date() == date {
-                seconds_worked += events[0].duration(&now) as usize;
-                new_events.push(events.remove(0));
+            while events.peek().is_some_and(|e| e.start.date() == date) {
+                let e = events.next().unwrap();
+                seconds_worked += e.duration(&now) as usize;
+                new_events.push(e);
             }
             if conf.is_workday(&date) {
                 // only check for vacation time on workdays
-                let s = date.and_hms(0, 0, 0);
+                let s = date.and_hms_opt(0, 0, 0).unwrap();
                 let e = s + Duration::days(1);
                 // make sure we don't fetch in vacation time beyond the end of the last moment
-                let e = if &e > end { end } else { &e };
+                let e = if &e > end { *end } else { e };
                 let start_workday = start_workday(&s, conf);
                 let end_workday = start_workday + Duration::hours(conf.day_length as i64);
                 // and the end of the workday won't be past the last moment either
-                let end_workday = if &end_workday > e { e } else { &end_workday };
-                let delta = (end_workday.timestamp() - start_workday.timestamp()) as usize;
-                let mut unworked_seconds = if seconds_worked > delta {
-                    0
-                } else {
-                    delta - seconds_worked
-                };
+                let end_workday = if end_workday > e { e } else { end_workday };
+                let delta = (end_workday.and_utc().timestamp()
+                    - start_workday.and_utc().timestamp()) as usize;
+                let mut unworked_seconds = delta.saturating_sub(seconds_worked);
                 // look through the vacation records for anything that overlaps this workday
                 for v in &sorted_records {
-                    if let Some(event) = v.overlap(&s, e, unworked_seconds, conf) {
+                    if let Some(event) = v.overlap(&s, &e, unworked_seconds, conf) {
                         let duration = event.duration(&now) as usize;
                         if duration == 0 {
                             // I don't recall why this is safe; events are sorted by length, longest to shortest?
@@ -523,11 +525,10 @@ impl VacationController {
                                 break;
                             }
                         }
-                    } else {
                     }
                 }
             }
-            date = date + Duration::days(1);
+            date += Duration::days(1);
         }
         new_events.sort_by(|a, b| {
             if a.start == b.start {
@@ -540,7 +541,7 @@ impl VacationController {
     }
     fn sorted_vacation_records(&self) -> Vec<&Vacation> {
         let mut sorted = self.vacations.iter().collect::<Vec<&Vacation>>();
-        sorted.sort_by(|a, b| a.cmp(b));
+        sorted.sort();
         sorted
     }
     // serialize vacation records back to file
@@ -568,10 +569,12 @@ impl VacationController {
                 File::create(self.path_buf()).expect("could not open vacation file for writing"),
             );
             for vacation in &self.vacations {
-                writeln!(write, "{}", vacation.serialize()).expect(&format!(
-                    "failed to write vacation record to vacation file: {:?}",
-                    vacation
-                ));
+                writeln!(write, "{}", vacation.serialize()).unwrap_or_else(|_| {
+                    panic!(
+                        "failed to write vacation record to vacation file: {:?}",
+                        vacation
+                    )
+                });
             }
             if backed_up {
                 std::fs::remove_file(self.path_buf_bak())
@@ -613,13 +616,12 @@ impl VacationController {
         tags.dedup();
         let mut vacation = Vacation::new(description, tags, start, end);
         if let Some(k) = kind {
-            vacation.kind = Type::from_str(k);
+            vacation.kind = Type::from_str(k).unwrap();
         }
         if let Some(r) = repetition {
-            vacation.repetition = Repetition::from_str(r);
-            match vacation.repetition {
-                Repetition::Never => (),
-                _ => vacation.effective_as_of = Some(Local::now().naive_local()),
+            vacation.repetition = Repetition::from_str(r).unwrap();
+            if vacation.repetition != Repetition::Never {
+                vacation.effective_as_of = Some(Local::now().naive_local());
             }
         }
         let description = vacation.describe();
@@ -652,7 +654,7 @@ impl VacationController {
             ));
         }
         if self.vacations[index].repeating() {
-            self.vacations[index].over_as_of = Some(date.clone());
+            self.vacations[index].over_as_of = Some(*date);
             self.changed = true;
             Ok(format!(
                 "repetition over as of {}: {}",
@@ -682,7 +684,7 @@ impl VacationController {
             ));
         }
         if self.vacations[index].repeating() {
-            self.vacations[index].effective_as_of = Some(date.clone());
+            self.vacations[index].effective_as_of = Some(*date);
             self.changed = true;
             Ok(format!(
                 "repetition effective as of {}: {}",
@@ -698,144 +700,82 @@ impl VacationController {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Type {
-    Flex,
-    Fixed,
     Ordinary,
+    Fixed,
+    Flex,
 }
 
+// to simplify ordering logic: ordinary sorts first, then fixed, then flex
 impl Type {
-    fn from_str(t: &str) -> Type {
-        match t {
-            "flex" => Type::Flex,
-            "fixed" => Type::Fixed,
-            "ordinary" => Type::Ordinary,
-            _ => unreachable!(),
-        }
-    }
-    fn from_num(t: &str) -> Type {
-        match t {
-            "0" => Type::Ordinary,
-            "1" => Type::Flex,
-            "2" => Type::Fixed,
-            _ => unreachable!(),
-        }
-    }
-    fn to_num(&self) -> &str {
+    fn to_num(self) -> &'static str {
         match self {
+            Type::Ordinary => "0",
             Type::Flex => "1",
             Type::Fixed => "2",
-            Type::Ordinary => "0",
         }
     }
-    fn to_s(&self) -> &str {
+    fn to_s(self) -> &'static str {
         match self {
             Type::Flex => "flex",
             Type::Fixed => "fixed",
             Type::Ordinary => "",
         }
     }
-    // to simplify ordering logic
-    fn to_u8(&self) -> u8 {
-        match self {
-            Type::Ordinary => 0,
-            Type::Fixed => 1,
-            Type::Flex => 2,
+}
+
+impl FromStr for Type {
+    type Err = String;
+    fn from_str(t: &str) -> Result<Type, String> {
+        match t {
+            "flex" => Ok(Type::Flex),
+            "fixed" => Ok(Type::Fixed),
+            "ordinary" => Ok(Type::Ordinary),
+            "0" => Ok(Type::Ordinary),
+            "1" => Ok(Type::Flex),
+            "2" => Ok(Type::Fixed),
+            _ => Err(format!("\"{}\" is not a vacation type", t)),
         }
     }
 }
 
-impl PartialOrd for Type {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.to_u8().cmp(&other.to_u8()))
-    }
-}
-
-impl Ord for Type {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap()
-    }
-}
-
-impl PartialEq for Type {
-    fn eq(&self, other: &Self) -> bool {
-        match self.cmp(other) {
-            Ordering::Equal => true,
-            _ => false,
-        }
-    }
-}
-
-impl Eq for Type {}
-
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Repetition {
-    Annual,
     Monthly,
+    Annual,
     Never,
 }
 
+// to make it easier to implement ordering: monthly sorts first, then annual, then never
 impl Repetition {
-    fn from_str(t: &str) -> Repetition {
-        match t {
-            "monthly" => Repetition::Monthly,
-            "annual" => Repetition::Annual,
-            "never" => Repetition::Never,
-            _ => unreachable!(),
-        }
-    }
-    fn from_num(t: &str) -> Repetition {
-        match t {
-            "0" => Repetition::Never,
-            "1" => Repetition::Annual,
-            "2" => Repetition::Monthly,
-            _ => unreachable!(),
-        }
-    }
-    fn to_num(&self) -> &str {
+    fn to_num(self) -> &'static str {
         match self {
             Repetition::Annual => "1",
             Repetition::Monthly => "2",
             Repetition::Never => "0",
         }
     }
-    fn to_s(&self) -> &str {
+    fn to_s(self) -> &'static str {
         match self {
             Repetition::Annual => "annual",
             Repetition::Monthly => "monthly",
             Repetition::Never => "",
         }
     }
-    // to make it easier to implement ordering
-    fn to_u8(&self) -> u8 {
-        match self {
-            Repetition::Monthly => 0,
-            Repetition::Annual => 1,
-            Repetition::Never => 2,
+}
+
+impl FromStr for Repetition {
+    type Err = String;
+    fn from_str(t: &str) -> Result<Repetition, String> {
+        match t {
+            "monthly" | "2" => Ok(Repetition::Monthly),
+            "annual" | "1" => Ok(Repetition::Annual),
+            "never" | "0" => Ok(Repetition::Never),
+            _ => Err(format!("\"{}\" is not a repetition period", t)),
         }
     }
 }
-
-impl PartialOrd for Repetition {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.to_u8().partial_cmp(&other.to_u8())
-    }
-}
-
-impl Ord for Repetition {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap()
-    }
-}
-
-impl PartialEq for Repetition {
-    fn eq(&self, other: &Self) -> bool {
-        self.to_u8() == other.to_u8()
-    }
-}
-
-impl Eq for Repetition {}
 
 #[derive(Debug)]
 struct Vacation {
@@ -851,42 +791,34 @@ struct Vacation {
 
 impl PartialOrd for Vacation {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.kind == other.kind {
-            if self.repetition == other.repetition {
-                if self.start == other.start {
-                    if self.end == other.end {
-                        if self.description == other.description {
-                            self.tags.partial_cmp(&other.tags)
-                        } else {
-                            self.description.partial_cmp(&other.description)
-                        }
-                    } else {
-                        self.end.partial_cmp(&other.end)
-                    }
-                } else {
-                    self.start.partial_cmp(&other.start)
-                }
-            } else {
-                self.repetition.partial_cmp(&other.repetition)
-            }
-        } else {
-            self.kind.partial_cmp(&other.kind)
-        }
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for Vacation {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap()
+        (
+            &self.kind,
+            &self.repetition,
+            &self.start,
+            &self.end,
+            &self.description,
+            &self.tags,
+        )
+            .cmp(&(
+                &other.kind,
+                &other.repetition,
+                &other.start,
+                &other.end,
+                &other.description,
+                &other.tags,
+            ))
     }
 }
 
 impl PartialEq for Vacation {
     fn eq(&self, other: &Self) -> bool {
-        match self.cmp(other) {
-            Ordering::Equal => true,
-            _ => false,
-        }
+        self.cmp(other) == Ordering::Equal
     }
 }
 
@@ -911,7 +843,7 @@ fn unescape_description(description: &str) -> String {
     cleaned
 }
 
-// description inot
+// description in, escaped and whitespace-normalized, out
 fn escape_description(description: &str) -> String {
     let mut s = String::new();
     let mut was_whitespace = None; // strip initial whitespace and condense internal and terminal whitespace, normalizing to ' '
@@ -932,6 +864,35 @@ fn escape_description(description: &str) -> String {
         s.push(if c.is_whitespace() { ' ' } else { c }); // normalize whitespace
     }
     s.trim().to_owned()
+}
+
+// split a vacation line into its colon-delimited fields, honoring backslash escapes
+fn split_vacation_fields(line: &str) -> Option<Vec<&str>> {
+    let mut fields = Vec::new();
+    let mut start = 0;
+    let mut chars = line.char_indices();
+    while let Some((i, c)) = chars.next() {
+        match c {
+            '\\' => {
+                chars.next()?;
+            }
+            ':' => {
+                fields.push(&line[start..i]);
+                start = i + 1;
+            }
+            _ => (),
+        }
+    }
+    fields.push(&line[start..]);
+    Some(fields)
+}
+
+fn parse_vacation_timestamp(field: &str) -> NaiveDateTime {
+    assert!(
+        VACATION_TIMESTAMP_RE.is_match(field),
+        "encountered unparsable line in vacation log"
+    );
+    parse_timestamp(field).unwrap()
 }
 
 impl Vacation {
@@ -1004,82 +965,83 @@ impl Vacation {
     }
 
     fn repeating(&self) -> bool {
-        match self.repetition {
-            Repetition::Never => false,
-            _ => true,
-        }
+        self.repetition != Repetition::Never
     }
 
     fn deserialize(line: &str) -> Option<Vacation> {
-        lazy_static! {
-            static ref VACATION: Grammar = grammar!{
-
-                TOP -> r(r"\A") <vacation_line> r(r"\z")
-                vacation_line   -> <vacation> | r(r"\s*(?:#.*)?") // allowing (perhaps unwisely) blank lines and comments
-                vacation        -> <start> (":") <end> (":") <kind> <repetition> (":") <tags> (":") <description> <optional_bits>?
-                start           -> <timestamp>
-                end             -> <timestamp>
-                kind            -> r("[012]")
-                repetition      -> r("[012]")
-                tags            -> r(r"(?:\\.|[^:<\\])*") // colons, spaces, and < must be escaped, so the escape character \ must also be escaped
-                description     -> r(r"(?:\\.|[^:\\])*") //  colons escaped
-                optional_bits   -> (":") <effective_as_of>? (":") <over_as_of>?
-                effective_as_of -> <timestamp>
-                over_as_of      -> <timestamp>
-                timestamp       -> r(r"\s*[1-9]\d{3}(?:\s+[1-9]\d?){2}(?:\s+(?:0|[1-9]\d?)){3}\s*")
-            };
-            static ref MATCHER: Matcher = VACATION.matcher().unwrap();
+        // blank lines and comments are allowed (perhaps unwisely)
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            return None;
         }
-        if let Some(ast) = MATCHER.parse(line) {
-            if let Some(vacation) = ast.name("vacation") {
-                let start = parse_timestamp(vacation.name("start").unwrap().as_str()).unwrap();
-                let end = parse_timestamp(vacation.name("end").unwrap().as_str()).unwrap();
-                let tags = parse_tags(ast.name("tags").unwrap().as_str());
-                let description = unescape_description(ast.name("description").unwrap().as_str());
-                let kind = Type::from_num(vacation.name("kind").unwrap().as_str());
-                let repetition =
-                    Repetition::from_num(vacation.name("repetition").unwrap().as_str());
-                let effective_as_of = vacation
-                    .name("effective_as_of")
-                    .and_then(|s| Some(parse_timestamp(s.as_str()).unwrap()));
-                let over_as_of = vacation
-                    .name("over_as_of")
-                    .and_then(|s| Some(parse_timestamp(s.as_str()).unwrap()));
-                Some(Vacation {
-                    start,
-                    end,
-                    tags,
-                    description,
-                    kind,
-                    repetition,
-                    effective_as_of,
-                    over_as_of,
-                })
-            } else {
+        let fields = split_vacation_fields(line)
+            .unwrap_or_else(|| panic!("encountered unparsable line in vacation log"));
+        // the fields are start, end, kind+repetition, tags, description, and optionally
+        // effective-as-of and over-as-of timestamps
+        if fields.len() != 5 && fields.len() != 7 {
+            panic!("encountered unparsable line in vacation log");
+        }
+        let start = parse_vacation_timestamp(fields[0]);
+        let end = parse_vacation_timestamp(fields[1]);
+        let mut kind_repetition = fields[2].chars().filter(|c| !c.is_whitespace());
+        let kind = kind_repetition
+            .next()
+            .and_then(|c| Type::from_str(&c.to_string()).ok());
+        let repetition = kind_repetition
+            .next()
+            .and_then(|c| Repetition::from_str(&c.to_string()).ok());
+        if kind_repetition.next().is_some() || kind.is_none() || repetition.is_none() {
+            panic!("encountered unparsable line in vacation log");
+        }
+        if !VACATION_TAGS_RE.is_match(fields[3]) || !VACATION_DESCRIPTION_RE.is_match(fields[4]) {
+            panic!("encountered unparsable line in vacation log");
+        }
+        let tags = parse_tags(fields[3]);
+        let description = unescape_description(fields[4]);
+        let (effective_as_of, over_as_of) = if fields.len() == 7 {
+            let effective_as_of = if fields[5].trim().is_empty() {
                 None
-            }
+            } else {
+                Some(parse_vacation_timestamp(fields[5]))
+            };
+            let over_as_of = if fields[6].trim().is_empty() {
+                None
+            } else {
+                Some(parse_vacation_timestamp(fields[6]))
+            };
+            (effective_as_of, over_as_of)
         } else {
-            panic!("encountered unparsable line in vacation log")
-        }
+            (None, None)
+        };
+        Some(Vacation {
+            start,
+            end,
+            tags,
+            description,
+            kind: kind.unwrap(),
+            repetition: repetition.unwrap(),
+            effective_as_of,
+            over_as_of,
+        })
     }
 
     fn serialize(&self) -> String {
         let mut line = timestamp(&self.start);
-        line.push_str(":");
+        line.push(':');
         line.push_str(&timestamp(&self.end));
-        line.push_str(":");
+        line.push(':');
         line.push_str(self.kind.to_num());
         line.push_str(self.repetition.to_num());
-        line.push_str(":");
+        line.push(':');
         line.push_str(&tags(&self.tags));
-        line.push_str(":");
+        line.push(':');
         line.push_str(&escape_description(&self.description));
         if self.effective_as_of.is_some() || self.over_as_of.is_some() {
-            line.push_str(":");
+            line.push(':');
             if let Some(t) = self.effective_as_of {
                 line.push_str(&timestamp(&t));
             }
-            line.push_str(":");
+            line.push(':');
             if let Some(t) = self.over_as_of {
                 line.push_str(&timestamp(&t));
             }
@@ -1118,9 +1080,9 @@ impl Vacation {
                     let (s, e) = fit_range_to_workday(&s, &e, conf);
                     let end_available = s + Duration::seconds(available_seconds as i64);
                     // we don't want the flex end time to be greater than the end parameter, though
-                    let mut end_times = vec![&e, &end_available, end];
+                    let mut end_times = [&e, &end_available, end];
                     end_times.sort_unstable();
-                    let e = end_times[0].clone();
+                    let e = *end_times[0];
                     Some((s, e))
                 } else {
                     None
@@ -1128,40 +1090,47 @@ impl Vacation {
             }
             _ => {
                 let maybe_range = match self.repetition {
-                    Repetition::Never => Some((self.start.clone(), self.end.clone())),
+                    Repetition::Never => Some((self.start, self.end)),
                     Repetition::Annual => {
-                        if self.effective_as_of.as_ref().unwrap_or(start) > end
-                            || self.over_as_of.as_ref().unwrap_or(end) < start
+                        if self.effective_as_of.unwrap_or(*start) > *end
+                            || self.over_as_of.unwrap_or(*end) < *start
                         {
                             None
                         } else {
-                            let d1 = NaiveDate::from_ymd(
+                            let d1 = NaiveDate::from_ymd_opt(
                                 start.year(),
                                 self.start.month(),
                                 self.start.day(),
                             )
-                            .and_hms(
+                            .unwrap()
+                            .and_hms_opt(
                                 self.start.hour(),
                                 self.start.minute(),
                                 self.start.second(),
-                            );
+                            )
+                            .unwrap();
                             let d2 = d1 + self.duration();
                             Some((d1, d2))
                         }
                     }
                     Repetition::Monthly => {
-                        if self.effective_as_of.as_ref().unwrap_or(start) > end
-                            || self.over_as_of.as_ref().unwrap_or(end) < start
+                        if self.effective_as_of.unwrap_or(*start) > *end
+                            || self.over_as_of.unwrap_or(*end) < *start
                         {
                             None
                         } else {
-                            let d1 =
-                                NaiveDate::from_ymd(start.year(), start.month(), self.start.day())
-                                    .and_hms(
-                                        self.start.hour(),
-                                        self.start.minute(),
-                                        self.start.second(),
-                                    );
+                            let d1 = NaiveDate::from_ymd_opt(
+                                start.year(),
+                                start.month(),
+                                self.start.day(),
+                            )
+                            .unwrap()
+                            .and_hms_opt(
+                                self.start.hour(),
+                                self.start.minute(),
+                                self.start.second(),
+                            )
+                            .unwrap();
                             let d2 = d1 + self.duration();
                             Some((d1, d2))
                         }
@@ -1173,7 +1142,7 @@ impl Vacation {
                     {
                         let (s, e) = fit_range_to_workday(&s, &e, conf);
                         // if the end parameter is now, we cut it off
-                        let e = if &e > end { end.clone() } else { e };
+                        let e = if &e > end { *end } else { e };
                         Some((s, e))
                     } else {
                         None
@@ -1203,7 +1172,8 @@ impl Vacation {
         match self.kind {
             Type::Ordinary | Type::Flex => true,
             _ => {
-                let duration = (self.end.timestamp() - self.start.timestamp()) as u32;
+                let duration =
+                    (self.end.and_utc().timestamp() - self.start.and_utc().timestamp()) as u32;
                 (conf.day_length as u32) * (60 * 60) <= duration
             }
         }
@@ -1230,16 +1200,16 @@ fn available_overlap(
 ) -> Option<(NaiveDateTime, NaiveDateTime)> {
     if any_overlap(interval_1, interval_2) {
         let s = if interval_1.0 < interval_2.0 {
-            interval_2.0
+            *interval_2.0
         } else {
-            interval_1.0
+            *interval_1.0
         }; // the greater of the two starts
         let e = if interval_1.1 < interval_2.1 {
-            interval_1.1
+            *interval_1.1
         } else {
-            interval_2.1
+            *interval_2.1
         }; // the lesser of the two ends
-        Some((s.clone(), e.clone()))
+        Some((s, e))
     } else {
         None
     }
@@ -1256,38 +1226,36 @@ fn fit_range_to_workday(
 }
 
 fn start_workday(time: &NaiveDateTime, conf: &Configuration) -> NaiveDateTime {
-    time.date().and_hms(
-        conf.beginning_work_day.0 as u32,
-        conf.beginning_work_day.1 as u32,
-        0,
-    )
+    time.date()
+        .and_hms_opt(
+            conf.beginning_work_day.0 as u32,
+            conf.beginning_work_day.1 as u32,
+            0,
+        )
+        .unwrap()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::log::{Done, Event, LogController};
-    use std::str::FromStr;
 
     // if the test panics, this leaves the file in the development directory for examination
     fn test_vacation_path(disambiguator: &str) -> Option<PathBuf> {
-        let path = PathBuf::from_str(&format!("test_vacation_{}", disambiguator))
-            .expect("could not create test vacation path");
-        Some(path)
+        Some(PathBuf::from(format!("test_vacation_{}", disambiguator)))
     }
 
     // ditto
     fn test_log_path(disambiguator: &str) -> Option<PathBuf> {
-        let path = PathBuf::from_str(&format!("test_log_{}", disambiguator))
-            .expect("could not create test log path");
-        Some(path)
+        Some(PathBuf::from(format!("test_log_{}", disambiguator)))
     }
 
     // so we have a known configuraiton
     fn test_configuration_path(disambiguator: &str) -> Option<PathBuf> {
-        let path = PathBuf::from_str(&format!("test_configuration_{}", disambiguator))
-            .expect("could not create test configuration path");
-        Some(path)
+        Some(PathBuf::from(format!(
+            "test_configuration_{}",
+            disambiguator
+        )))
     }
 
     fn test_configuration(disambiguator: &str) -> Configuration {
@@ -1314,57 +1282,39 @@ mod tests {
     }
 
     fn test_time(phrase: &str) -> (NaiveDateTime, NaiveDateTime) {
-        let (start, end, _) =
-            parse(phrase, None).expect(&format!("could not make test time from '{}'", phrase));
-        (start, end)
+        let range = parse(phrase, None)
+            .unwrap_or_else(|_| panic!("could not make test time from '{}'", phrase));
+        (range.start, range.end)
     }
 
     fn test_now() -> NaiveDateTime {
-        NaiveDate::from_ymd(2001, 1, 1).and_hms(12, 0, 0)
+        NaiveDate::from_ymd_opt(2001, 1, 1)
+            .unwrap()
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
     }
 
     // remove test files
     fn cleanup(disambiguator: &str) {
-        std::fs::remove_file(
-            PathBuf::from_str(
-                test_configuration_path(disambiguator)
-                    .unwrap()
-                    .to_str()
-                    .expect("no configuration file"),
-            )
-            .expect("could not obtain path of configuration"),
-        )
-        .expect("failed to remove test configuration file");
-        std::fs::remove_file(
-            PathBuf::from_str(
-                test_vacation_path(disambiguator)
-                    .unwrap()
-                    .to_str()
-                    .expect("no vacation file"),
-            )
-            .expect("could not obtain path of vacation"),
-        )
-        .expect("failed to remove test vacation file");
-        std::fs::remove_file(
-            PathBuf::from_str(
-                test_log_path(disambiguator)
-                    .unwrap()
-                    .to_str()
-                    .expect("no log file"),
-            )
-            .expect("could not obtain path of log"),
-        )
-        .expect("failed to remove test log file");
+        for path in [
+            test_configuration_path(disambiguator).unwrap(),
+            test_vacation_path(disambiguator).unwrap(),
+            test_log_path(disambiguator).unwrap(),
+        ] {
+            if path.as_path().exists() {
+                std::fs::remove_file(path).expect("failed to remove test file");
+            }
+        }
     }
 
     fn add_event(log: &mut LogController, time: &NaiveDateTime, description: &str) {
         let mut event = Event::coin(description.to_owned(), Vec::new());
-        event.start = time.clone();
+        event.start = *time;
         log.append_to_log(event, "could not add event");
     }
 
     fn end_event(log: &mut LogController, time: &NaiveDateTime) {
-        log.append_to_log(Done(time.clone()), "could not end event");
+        log.append_to_log(Done(*time), "could not end event");
     }
 
     fn add_vacation(
@@ -1379,8 +1329,8 @@ mod tests {
         vacation.record(
             description.to_owned(),
             tags.iter().map(|s| s.to_string()).collect(),
-            start.clone(),
-            end.clone(),
+            *start,
+            *end,
             kind,
             repetition,
         )
@@ -1411,7 +1361,7 @@ mod tests {
             &christmas_ends,
             events,
             &conf,
-            Some(now.clone()),
+            Some(now),
             &filter,
         );
         assert_eq!(1, events.len(), "log now has one event");
@@ -1420,7 +1370,7 @@ mod tests {
             events[0].duration(&now),
             "vacation lasts one work day"
         );
-        assert_eq!(true, events[0].vacation, "event is marked as vacation");
+        assert!(events[0].vacation, "event is marked as vacation");
         assert_eq!(
             Some(String::from("")),
             events[0].vacation_type,
@@ -1460,7 +1410,7 @@ mod tests {
             &christmas_ends,
             events,
             &conf,
-            Some(now.clone()),
+            Some(now),
             &filter,
         );
         assert_eq!(1, events.len(), "log now has one event");
@@ -1469,7 +1419,7 @@ mod tests {
             events[0].duration(&now),
             "vacation lasts one work day"
         );
-        assert_eq!(true, events[0].vacation, "event is marked as vacation");
+        assert!(events[0].vacation, "event is marked as vacation");
         assert_eq!(
             Some(String::from("")),
             events[0].vacation_type,
@@ -1554,7 +1504,7 @@ mod tests {
             &christmas_ends,
             events,
             &conf,
-            Some(now.clone()),
+            Some(now),
             &filter,
         );
         assert_eq!(1, events.len(), "log now has one event");
@@ -1563,7 +1513,7 @@ mod tests {
             events[0].duration(&now),
             "vacation lasts one work day"
         );
-        assert_eq!(true, events[0].vacation, "event is marked as vacation");
+        assert!(events[0].vacation, "event is marked as vacation");
         assert_eq!(
             Some(String::from("")),
             events[0].vacation_type,
@@ -1685,7 +1635,7 @@ mod tests {
             &ides_ends,
             events,
             &conf,
-            Some(now.clone()),
+            Some(now),
             &filter,
         );
         assert_eq!(1, events.len(), "log now has one event");
@@ -1694,7 +1644,7 @@ mod tests {
             events[0].duration(&now),
             "vacation lasts one work day"
         );
-        assert_eq!(true, events[0].vacation, "event is marked as vacation");
+        assert!(events[0].vacation, "event is marked as vacation");
         assert_eq!(
             Some(String::from("")),
             events[0].vacation_type,
@@ -1812,7 +1762,7 @@ mod tests {
             &christmas_eve_ends,
             events,
             &conf,
-            Some(now.clone()),
+            Some(now),
             &filter,
         );
         assert_eq!(2, events.len(), "task and vacation in log");
@@ -1826,7 +1776,7 @@ mod tests {
             events[0].duration(&now),
             "vacation lasts the remainder of the work day"
         );
-        assert_eq!(true, events[0].vacation, "event is marked as vacation");
+        assert!(events[0].vacation, "event is marked as vacation");
         assert_eq!(
             Some(String::from("flex")),
             events[0].vacation_type,
@@ -1869,7 +1819,7 @@ mod tests {
                 &vacation_day_ends,
                 events,
                 &conf,
-                Some(now.clone()),
+                Some(now),
                 &filter,
             );
             assert_eq!(1, events.len(), "log now has one event");
@@ -1878,7 +1828,7 @@ mod tests {
                 events[0].duration(&now),
                 "vacation lasts one work day"
             );
-            assert_eq!(true, events[0].vacation, "event is marked as vacation");
+            assert!(events[0].vacation, "event is marked as vacation");
             assert_eq!(
                 Some(String::from("")),
                 events[0].vacation_type,
@@ -1927,7 +1877,7 @@ mod tests {
             &random_day_ends,
             events,
             &conf,
-            Some(now.clone()),
+            Some(now),
             &filter,
         );
         assert_eq!(2, events.len(), "task and vacation in log");
@@ -1950,7 +1900,7 @@ mod tests {
             events[0].end,
             "vacation ends when expected"
         );
-        assert_eq!(true, events[0].vacation, "event is marked as vacation");
+        assert!(events[0].vacation, "event is marked as vacation");
         assert_eq!(
             Some(String::from("fixed")),
             events[0].vacation_type,
@@ -1964,6 +1914,7 @@ mod tests {
         assert_eq!(0, events[0].tags.len(), "no tags");
         cleanup(disambiguator);
     }
+
     #[test]
     fn fixed_overlapping_task() {
         let disambiguator = "fixed_overlapping_task";
@@ -1997,7 +1948,7 @@ mod tests {
             &random_day_ends,
             events,
             &conf,
-            Some(now.clone()),
+            Some(now),
             &filter,
         );
         assert_eq!(2, events.len(), "task and vacation in log");
@@ -2020,7 +1971,7 @@ mod tests {
             events[0].end,
             "vacation ends when expected"
         );
-        assert_eq!(true, events[0].vacation, "event is marked as vacation");
+        assert!(events[0].vacation, "event is marked as vacation");
         assert_eq!(
             Some(String::from("fixed")),
             events[0].vacation_type,
@@ -2033,5 +1984,38 @@ mod tests {
         );
         assert_eq!(0, events[0].tags.len(), "no tags");
         cleanup(disambiguator);
+    }
+
+    #[test]
+    fn serialize_deserialize_round_trip() {
+        let start = NaiveDate::from_ymd_opt(2020, 12, 25)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
+        let end = start + Duration::days(1);
+        let v = Vacation {
+            description: "Christmas: a day off".to_owned(),
+            tags: vec!["family".to_owned(), "religious".to_owned()],
+            kind: Type::Ordinary,
+            repetition: Repetition::Annual,
+            start,
+            end,
+            effective_as_of: Some(start),
+            over_as_of: None,
+        };
+        let line = v.serialize();
+        let parsed = Vacation::deserialize(&line).expect("should deserialize");
+        assert_eq!(parsed.start, v.start);
+        assert_eq!(parsed.end, v.end);
+        assert_eq!(parsed.description, v.description);
+        assert_eq!(parsed.tags, v.tags);
+        assert_eq!(parsed.kind, v.kind);
+        assert_eq!(parsed.repetition, v.repetition);
+        assert_eq!(parsed.effective_as_of, v.effective_as_of);
+        assert_eq!(parsed.over_as_of, v.over_as_of);
+        // blank lines and comments deserialize to None
+        assert!(Vacation::deserialize("").is_none());
+        assert!(Vacation::deserialize("   ").is_none());
+        assert!(Vacation::deserialize("# a comment").is_none());
     }
 }

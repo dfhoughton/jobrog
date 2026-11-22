@@ -1,13 +1,9 @@
-extern crate chrono;
-extern crate clap;
-
 use crate::configure::Configuration;
 use crate::log::{Event, Filter, Item, LogController};
-use crate::util::{check_for_ongoing_event, common_search_or_filter_arguments, describe, warn};
-use clap::{App, ArgMatches, SubCommand};
+use crate::util::{check_for_ongoing_event, describe, warn, FilterArgs};
 
-fn after_help() -> &'static str {
-    "If you start the day by returning to what you were doing and the end of the previous \
+pub const AFTER_HELP: &str = "\
+If you start the day by returning to what you were doing and the end of the previous \
 day, you can simply type
 
   job resume
@@ -21,22 +17,22 @@ To log the first task of the days as the email task. Any time you switch tasks b
 one you've done befoer you can resume the old task rather than type out its full description \
 and tags.
 
-All prefixes of 'resume' are aliases of the subcommand."
+All prefixes of 'resume' are aliases of the subcommand.";
+
+#[derive(Debug, clap::Args)]
+#[command(
+    aliases = ["r", "re", "res", "resu", "resum"],
+    about = "Resumes a stopped task",
+    after_help = AFTER_HELP,
+    after_long_help = AFTER_HELP
+)]
+pub struct Args {
+    #[command(flatten)]
+    pub filter: FilterArgs,
 }
 
-pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
-    mast.subcommand(common_search_or_filter_arguments(
-        SubCommand::with_name("resume")
-            .aliases(&["r", "re", "res", "resu", "resum"])
-            .about("Resumes a stopped task")
-            .after_help(after_help())
-            .display_order(display_order),
-        Some(true),
-    ))
-}
-
-pub fn run(directory: Option<&str>, matches: &ArgMatches) {
-    let filter = Filter::new(matches);
+pub fn run(directory: Option<&str>, args: &Args) {
+    let filter = Filter::new(&args.filter);
     let conf = Configuration::read(None, directory);
     let mut reader = LogController::new(None, &conf).expect("could not read log");
     check_for_ongoing_event(&mut reader, &conf);

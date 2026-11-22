@@ -1,20 +1,15 @@
-extern crate chrono;
-extern crate clap;
-extern crate two_timer;
-
 use crate::configure::Configuration;
 use crate::log::{Event, Filter, LogController, Note};
 use crate::util::{
-    check_for_ongoing_event, common_search_or_filter_arguments, display_events, display_notes,
-    fatal, remainder, warn,
+    check_for_ongoing_event, display_events, display_notes, fatal, valid_time_expression, warn,
+    FilterArgs,
 };
 use crate::vacation::VacationController;
 use chrono::{Duration, Local};
-use clap::{App, Arg, ArgMatches, SubCommand};
-use two_timer::{parsable, parse};
 
-fn after_help() -> &'static str {
-    "\
+use two_timer::parse;
+
+pub const AFTER_HELP: &str = "\
 The summary subcommand aggregates and displays all the logged events \
 in a particular period:
 
@@ -64,78 +59,94 @@ provides a summary of the current day's tasks. Jobrog, the Rust version, lacks t
 the default time expression is 'today'. Also, the subcommand has 'to' and 'today' aliases for people whose muscle \
 memory causes them to keep trying to use the today subcommand. As in the Perl version, jobrog provides all \
 unambiguous prefixes of 'summary' as aliases (also, 's', though the statistics subcommand also begins \
-with 's')."
+with 's').";
+
+#[derive(Debug, clap::Args)]
+#[command(
+    // the last, "to", is there because I'm used to there being a today subcommand which does what
+    // summary with no further arguments does in jobrog
+    aliases = ["s", "su", "sum", "summ", "summa", "summar", "to", "today"],
+    about = "Provides a list summary of tasks performed in the given period",
+    after_help = AFTER_HELP,
+    after_long_help = AFTER_HELP
+)]
+pub struct Args {
+    #[command(flatten)]
+    pub filter: FilterArgs,
+
+    /// description of time period summarized
+    ///
+    /// Words describing the period summarized. E.g., 'last week' or '2016-10-2'.
+    #[arg(value_name = "word", default_value = "today", num_args = 1..)]
+    pub period: Vec<String>,
+
+    /// Receives the time expression as an option rather than an argument
+    ///
+    /// If you are frequently reviewing the tasks done in a particular pay period, filtering them
+    /// by tag, say, it may be convenient for the date not to be at the end of the command line --
+    /// better to add filters here. In this case you can use the --date option.
+    #[arg(
+        long,
+        short = 'd',
+        value_name = "phrase",
+        value_parser = valid_time_expression
+    )]
+    pub date: Option<String>,
+
+    /// Doesn't merge contiguous events with the same tags
+    ///
+    /// By default contiguous events with the same tags are displayed as a single event with the
+    /// sub-events' descriptions joined with '; '. --no-merge prevents this.
+    #[arg(long)]
+    pub no_merge: bool,
+
+    /// Overrides precision in configuration
+    ///
+    /// The number of decimal places of precision used in the display of lengths of periods in
+    /// numbers of hours. If the number is 0, probably not what you want, all periods will be
+    /// rounded to a whole number of hours. The default value is 2. If the precision is a fraction
+    /// like 'quarter' times will be rounded to the closest fraction that size of the hour for display.
+    #[arg(
+        long,
+        short = 'p',
+        value_name = "precision",
+        value_parser = ["0", "1", "2", "3", "half", "third", "quarter", "sixth", "twelfth", "sixtieth"]
+    )]
+    pub precision: Option<String>,
+
+    /// Overrides truncation in configuration
+    ///
+    /// When an events duration is displayed, there is generally some amount of information not
+    /// displayed given the precision. By default this portion is rounded, so if the precision is
+    /// a quarter hour and the duration is 7.5 minutes, this will be displayed as 0.25 hours.
+    /// Alternatively, one could use the floor, in which case this would be 0.00 hours, or the
+    /// ceiling, in which case even a single second task would be shown as taking 0.25 hours.
+    #[arg(
+        long,
+        value_name = "function",
+        value_parser = ["round", "floor", "ceiling"]
+    )]
+    pub truncation: Option<String>,
+
+    /// Returns summarized events/notes as a list of line-delimited JSON objects
+    ///
+    /// Should you wish to feed summarized results into some other service this provides easily
+    /// parsed output.
+    #[arg(long, short = 'j')]
+    pub json: bool,
 }
 
-pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
-    mast.subcommand(common_search_or_filter_arguments(
-        SubCommand::with_name("summary")
-            .aliases(&["s", "su", "sum", "summ", "summa", "summar", "to", "today"])
-            // the last, "to", is there because I'm used to there being a today subcommand which does what summary with no further arguments does in jobrog
-            .about("Provides a list summary of tasks performed in the given period")
-            .after_help(after_help())
-            .arg(
-                Arg::with_name("period")
-                    .help("description of time period summarized")
-                    .long_help(
-                        "Words describing the period summarized. E.g., 'last week' or '2016-10-2'.",
-                    )
-                    .value_name("word")
-                    .default_value("today")
-                    .multiple(true)
-            )
-            .display_order(display_order),
-            None,
-    ).arg(
-        Arg::with_name("date")
-        .long("date")
-        .short("d")
-        .help("Receives the time expression as an option rather than an argument")
-        .long_help("If you are frequently reviewing the tasks done in a particular pay period, filtering them by tag, say, it may be convenient for the date not to be at the end of the command line -- better to add filters here. In this case you can use the --date option.")
-        .validator(|v| if parsable(&v) {Ok(())} else {Err(format!("cannot parse '{}' as a time expression", v))} )
-        .value_name("phrase")
-    ).arg(
-        Arg::with_name("no-merge")
-        .long("no-merge")
-        .help("Doesn't merge contiguous events with the same tags")
-        .long_help("By default contiguous events with the same tags are displayed as a single event with the sub-events' descriptions joined with '; '. --no-merge prevents this.")
-    ).arg(
-        Arg::with_name("precision")
-        .long("precision")
-        .short("p")
-        .help("Overrides precision in configuration")
-        .long_help("The number of decimal places of precision used in the display of lengths of periods in numbers of hours. \
-        If the number is 0, probably not what you want, all periods will be rounded to a whole number of hours. \
-        The default value is 2. If the precision is a fraction like 'quarter' times will be rounded to the closest fraction that size of the hour for display.")
-        .possible_values(&["0", "1", "2", "3", "half", "third", "quarter", "sixth", "twelfth", "sixtieth"])
-        .value_name("precision")
-    ).arg(
-        Arg::with_name("truncation")
-        .long("truncation")
-        .help("Overrides truncation in configuration")
-        .long_help("When an events duration is displayed, there is generally some amount of information not displayed given the precision. By default this portion is rounded, so if the precision is a quarter hour and the duration is 7.5 minutes, this will be displayed as 0.25 hours. Alternatively, one could use the floor, in which case this would be 0.00 hours, or the ceiling, in which case even a single second task would be shown as taking 0.25 hours.")
-        .possible_values(&["round", "floor", "ceiling"])
-        .value_name("function")
-    ).arg(
-        Arg::with_name("json")
-        .long("json")
-        .short("j")
-        .help("Returns summarized events/notes as a list of line-delimited JSON objects")
-        .long_help("Should you wish to feed summarized results into some other service this provides easily parsed output.")
-    ))
-}
-
-pub fn run(directory: Option<&str>, matches: &ArgMatches) {
-    let mut phrase = remainder("period", matches);
-    let date = matches.value_of("date").unwrap_or(&phrase);
+pub fn run(directory: Option<&str>, args: &Args) {
+    let mut phrase = args.period.join(" ");
+    let date = args.date.as_deref().unwrap_or(&phrase);
     let mut conf = Configuration::read(None, directory);
-    if let Some(identifier) = matches.value_of("precision") {
+    if let Some(identifier) = &args.precision {
         conf.set_precision(identifier);
     }
-    if let Some(identifier) = matches.value_of("truncation") {
+    if let Some(identifier) = &args.truncation {
         conf.set_truncation(identifier);
     }
-    if let Some(expression) = matches.value_of("date") {
+    if let Some(expression) = &args.date {
         if phrase != "today" {
             warn(
                 format!(
@@ -147,23 +158,25 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
         }
         phrase = expression.to_owned();
     }
-    if let Ok((start, end, _)) = parse(&phrase, conf.two_timer_config()) {
+    if let Ok(range) = parse(&phrase, conf.two_timer_config()) {
         let mut reader = LogController::new(None, &conf).expect("could not read log");
         let now = Local::now().naive_local();
+        let start = range.start;
+        let end = range.end;
         if let Some(time) = reader.first_timestamp() {
             // narrow the range in to just the dates from the beginning of the lot to the present
             // so that we don't have spurious vacation times
             let start = if time > start {
-                time.date().and_hms(0, 0, 0)
+                time.date().and_hms_opt(0, 0, 0).unwrap()
             } else {
                 start
             };
-            let time = now.date().and_hms(0, 0, 0) + Duration::days(1);
+            let time = now.date().and_hms_opt(0, 0, 0).unwrap() + Duration::days(1);
             let end = if end > time { time } else { end };
 
-            let filter = Filter::new(matches);
+            let filter = Filter::new(&args.filter);
             check_for_ongoing_event(&mut reader, &conf);
-            if matches.is_present("notes") {
+            if args.filter.notes {
                 let notes: Vec<Note> = reader
                     .notes_in_range(&start, &end)
                     .into_iter()
@@ -171,14 +184,12 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                     .collect();
                 if notes.is_empty() {
                     warn("no note found", &conf)
-                } else {
-                    if matches.is_present("json") {
-                        for n in notes {
-                            println!("{}", n.to_json(&now, &conf));
-                        }
-                    } else {
-                        display_notes(notes, &start, &end, &conf);
+                } else if args.json {
+                    for n in notes {
+                        println!("{}", n.to_json(&now, &conf));
                     }
+                } else {
+                    display_notes(notes, &start, &end, &conf);
                 }
             } else {
                 let events = reader
@@ -186,7 +197,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                     .into_iter()
                     .filter(|n| filter.matches(n))
                     .collect();
-                let events = if matches.is_present("no-merge") {
+                let events = if args.no_merge {
                     Event::gather_by_day(events, &end)
                 } else {
                     Event::gather_by_day_and_merge(events, &end)
@@ -195,22 +206,18 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                     .add_vacation_times(&start, &end, events, &conf, None, &filter);
                 if events.is_empty() {
                     warn("no event found", &conf)
-                } else {
-                    if matches.is_present("json") {
-                        for e in events {
-                            println!("{}", e.to_json(&now, &conf));
-                        }
-                    } else {
-                        display_events(events, &start, &end, &conf);
+                } else if args.json {
+                    for e in events {
+                        println!("{}", e.to_json(&now, &conf));
                     }
+                } else {
+                    display_events(events, &start, &end, &conf);
                 }
             }
+        } else if args.filter.notes {
+            warn("no note found", &conf)
         } else {
-            if matches.is_present("notes") {
-                warn("no note found", &conf)
-            } else {
-                warn("no event found", &conf)
-            }
+            warn("no event found", &conf)
         }
     } else {
         fatal(

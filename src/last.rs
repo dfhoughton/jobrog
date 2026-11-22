@@ -1,15 +1,9 @@
-extern crate chrono;
-extern crate clap;
-extern crate regex;
-
 use crate::configure::Configuration;
 use crate::log::{Event, Filter, LogController, Note};
-use crate::util::{common_search_or_filter_arguments, display_events, display_notes, warn};
+use crate::util::{display_events, display_notes, warn, FilterArgs};
 use chrono::Local;
-use clap::{App, ArgMatches, SubCommand};
 
-fn after_help() -> &'static str {
-    "\
+pub const AFTER_HELP: &str = "\
 Frequently you want to know your most recently initiated task or written note, \
 or the last task or note you worked on of a particular type. This command satisfies that want.
 
@@ -22,25 +16,25 @@ or the last task or note you worked on of a particular type. This command satisf
   mr          4.00
   sb          4.00
 
-All prefixes of 'last' are aliases of the subcommand."
+All prefixes of 'last' are aliases of the subcommand.";
+
+#[derive(Debug, clap::Args)]
+#[command(
+    aliases = ["l", "la", "las"],
+    about = "Shows the last task recorded",
+    after_help = AFTER_HELP,
+    after_long_help = AFTER_HELP
+)]
+pub struct Args {
+    #[command(flatten)]
+    pub filter: FilterArgs,
 }
 
-pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
-    mast.subcommand(common_search_or_filter_arguments(
-        SubCommand::with_name("last")
-            .aliases(&["l", "la", "las"])
-            .about("Shows the last task recorded")
-            .after_help(after_help())
-            .display_order(display_order),
-        None,
-    ))
-}
-
-pub fn run(directory: Option<&str>, matches: &ArgMatches) {
-    let filter = Filter::new(matches);
+pub fn run(directory: Option<&str>, args: &Args) {
+    let filter = Filter::new(&args.filter);
     let conf = Configuration::read(None, directory);
     let mut reader = LogController::new(None, &conf).expect("could not read log");
-    if matches.is_present("notes") {
+    if args.filter.notes {
         let note: Vec<Note> = reader
             .notes_from_the_end()
             .filter(|n| filter.matches(n))
@@ -49,9 +43,9 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
         if note.is_empty() {
             warn("no note found", &conf)
         } else {
-            let start = &note[0].time.clone();
+            let start = note[0].time;
             let now = Local::now().naive_local();
-            display_notes(note, start, &now, &conf);
+            display_notes(note, &start, &now, &conf);
         }
     } else {
         let event: Vec<Event> = reader
@@ -62,10 +56,10 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
         if event.is_empty() {
             warn("no event found", &conf)
         } else {
-            let start = &event[0].start.clone();
+            let start = event[0].start;
             let now = Local::now().naive_local();
             let event = Event::gather_by_day(event, &now);
-            display_events(event, start, &now, &conf);
+            display_events(event, &start, &now, &conf);
         }
     }
 }

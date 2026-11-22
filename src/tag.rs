@@ -1,23 +1,14 @@
-extern crate chrono;
-extern crate clap;
-extern crate two_timer;
-
 use crate::configure::Configuration;
 use crate::log::{parse_line, Filter, Item, LogController, LogLine};
-use crate::util::{
-    common_search_or_filter_arguments, display_events, display_notes, fatal, remainder, some_nws,
-    warn,
-};
+use crate::util::{display_events, display_notes, fatal, valid_tag, warn, FilterArgs};
 use chrono::{Duration, Local};
-use clap::{App, Arg, ArgMatches, SubCommand};
+
 use std::fs::{copy, remove_file, File};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
-use std::str::FromStr;
 use two_timer::parse;
 
-fn after_help() -> &'static str {
-    "\
+pub const AFTER_HELP: &str = "\
 If you are interrupted in the middle of the task you may want to add a timestamp to \
 the log and delay tagging the task until a quieter moment:
     
@@ -29,92 +20,73 @@ tag subcommand makes this a little easier. With `job tag --empty --last --add ov
 perhaps `job t -el -a o -a c` you're back on your way.
 
 All prefixes of 'tag', so 't' and 'ta', are aliases of the subcommand.
-"
-}
+";
 
 const BUFFER_SIZE: usize = 16 * 1024;
 
-pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
-    mast.subcommand(common_search_or_filter_arguments(
-        SubCommand::with_name("tag")
-            .aliases(&["t", "ta"])
-            .about("Modifies the tags for specified events/notes")
-            .after_help(after_help())
-            .arg(
-                Arg::with_name("period")
-                    .help("description of time period of interest")
-                    .long_help(
-                        "Words describing the period of interest. E.g., 'last week' or '2016-10-2'.",
-                    )
-                    .value_name("word")
-                    .default_value("today")
-                    .multiple(true)
-            )
-            .display_order(display_order),
-            None,
-    ).arg(
-        Arg::with_name("last")
-        .long("last")
-        .short("l")
-        .conflicts_with("first")
-        .help("Applies changes only to the last line found")
-    ).arg(
-        Arg::with_name("first")
-        .long("first")
-        .short("f")
-        .conflicts_with("last")
-        .help("Applies changes only to the first line found")
-    ).arg(
-        Arg::with_name("clear")
-        .long("clear")
-        .short("c")
-        .conflicts_with("remove")
-        .help("Removes all existing tags")
-    ).arg(
-        Arg::with_name("add")
-        .long("add")
-        .short("a")
-        .visible_alias("add-tag")
-        .validator(|v| if some_nws(&v) {Ok(())} else {Err(format!("tag {:?} needs some non-whitespace character", v))})
-        .multiple(true)
-        .number_of_values(1)
-        .help("Adds tag")
-        .value_name("tag")
-    ).arg(
-        Arg::with_name("remove")
-        .long("remove")
-        .short("r")
-        .conflicts_with("clear")
-        .visible_alias("remove-tag")
-        .validator(|v| if some_nws(&v) {Ok(())} else {Err(format!("tag {:?} needs some non-whitespace character", v))})
-        .multiple(true)
-        .number_of_values(1)
-        .help("Removes tag, if present")
-        .value_name("tag")
-    )
-)
+#[derive(Debug, clap::Args)]
+#[command(
+    aliases = ["t", "ta"],
+    about = "Modifies the tags for specified events/notes",
+    after_help = AFTER_HELP,
+    after_long_help = AFTER_HELP
+)]
+pub struct Args {
+    #[command(flatten)]
+    pub filter: FilterArgs,
+
+    /// description of time period of interest
+    ///
+    /// Words describing the period of interest. E.g., 'last week' or '2016-10-2'.
+    #[arg(value_name = "word", default_value = "today", num_args = 1..)]
+    pub period: Vec<String>,
+
+    /// Applies changes only to the last line found
+    #[arg(long, short = 'l', conflicts_with = "first")]
+    pub last: bool,
+
+    /// Applies changes only to the first line found
+    #[arg(long, short = 'f', conflicts_with = "last")]
+    pub first: bool,
+
+    /// Removes all existing tags
+    #[arg(long, short = 'c', conflicts_with = "remove")]
+    pub clear: bool,
+
+    /// Adds tag
+    #[arg(
+        long,
+        short = 'a',
+        value_name = "tag",
+        visible_alias = "add-tag",
+        value_parser = valid_tag
+    )]
+    pub add: Vec<String>,
+
+    /// Removes tag, if present
+    #[arg(
+        long,
+        short = 'r',
+        value_name = "tag",
+        visible_alias = "remove-tag",
+        conflicts_with = "clear",
+        value_parser = valid_tag
+    )]
+    pub remove: Vec<String>,
 }
 
-pub fn run(directory: Option<&str>, matches: &ArgMatches) {
+pub fn run(directory: Option<&str>, args: &Args) {
     let conf = Configuration::read(None, directory);
-    let mut to_add = if let Some(values) = matches.values_of("add") {
-        values.collect::<Vec<_>>()
-    } else {
-        vec![]
-    };
+    let mut to_add: Vec<&str> = args.add.iter().map(String::as_str).collect();
     to_add.sort_unstable();
     to_add.dedup();
-    let mut to_remove = if let Some(values) = matches.values_of("remove") {
-        values.collect::<Vec<_>>()
-    } else {
-        vec![]
-    };
+    let mut to_remove: Vec<&str> = args.remove.iter().map(String::as_str).collect();
     to_remove.sort_unstable();
     to_remove.dedup();
-    let clear = matches.is_present("clear");
+    let clear = args.clear;
     // some sanity checking
     if clear {
-        if matches.is_present("no-tags") {
+        if args.filter.no_tags {
             warn(
                 "there is no point in --clear if you are seeking only items that are --empty",
                 &conf,
@@ -135,12 +107,12 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                     true
                 }
             })
-            .map(|s| *s)
+            .copied()
             .collect::<Vec<_>>();
         let filtered_to_remove = to_remove
             .iter()
             .filter(|s| !common.contains(s))
-            .map(|s| *s)
+            .copied()
             .collect::<Vec<_>>();
         if !common.is_empty() {
             to_add = filtered_to_add;
@@ -160,23 +132,25 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
             );
         }
     }
-    let phrase = remainder("period", matches);
-    if let Ok((start, end, _)) = parse(&phrase, conf.two_timer_config()) {
+    let phrase = args.period.join(" ");
+    if let Ok(range) = parse(&phrase, conf.two_timer_config()) {
         let mut reader = LogController::new(None, &conf).expect("could not read log");
         let now = Local::now().naive_local();
+        let start = range.start;
+        let end = range.end;
         if let Some(time) = reader.first_timestamp() {
             // narrow the range in to just the dates from the beginning of the log to the present
             // so that we don't have spurious vacation times
             let start = if time > start {
-                time.date().and_hms(0, 0, 0)
+                time.date().and_hms_opt(0, 0, 0).unwrap()
             } else {
                 start
             };
-            let time = now.date().and_hms(0, 0, 0) + Duration::days(1);
+            let time = now.date().and_hms_opt(0, 0, 0).unwrap() + Duration::days(1);
             let end = if end > time { time } else { end };
 
-            let filter = Filter::new(matches);
-            let notes_only = matches.is_present("notes");
+            let filter = Filter::new(&args.filter);
+            let notes_only = args.filter.notes;
             let mut items = reader
                 .tagable_items_in_range(&start, &end)
                 .into_iter()
@@ -203,7 +177,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                     format!("no {} found", if notes_only { "note" } else { "event" }),
                     &conf,
                 );
-            } else if matches.is_present("last") {
+            } else if args.last {
                 items = vec![items.remove(items.len() - 1)];
             }
             let mut changed = false;
@@ -272,20 +246,16 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                     .expect("could not obtain line offset of first item")
                     as usize;
                 let mut bytes_written: usize = 0;
+                let mut buffer = vec![0u8; BUFFER_SIZE];
                 // fill up the log copy up to the offset without parsing bytes
                 while bytes_written < byte_offset {
-                    let delta = byte_offset - bytes_written;
-                    let mut buffer: Vec<u8> = if delta < BUFFER_SIZE {
-                        vec![0; delta]
-                    } else {
-                        vec![0; BUFFER_SIZE]
-                    };
+                    let delta = (byte_offset - bytes_written).min(BUFFER_SIZE);
                     buf_reader
-                        .read_exact(&mut buffer)
+                        .read_exact(&mut buffer[..delta])
                         .expect("could not read from log file");
-                    bytes_written += buffer.len();
+                    bytes_written += delta;
                     modified_copy
-                        .write_all(&buffer)
+                        .write_all(&buffer[..delta])
                         .expect("could not write to validation file");
                 }
                 // now add the changes and any other lines
@@ -293,7 +263,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                 for line_offset in items[0].offset()..reader.larry.len() {
                     if item_offset == items.len() || items[item_offset].offset() != line_offset {
                         modified_copy
-                            .write(
+                            .write_all(
                                 reader
                                     .larry
                                     .get(line_offset)
@@ -308,10 +278,10 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                             _ => unreachable!(),
                         };
                         modified_copy
-                            .write(line.as_bytes())
+                            .write_all(line.as_bytes())
                             .expect("could not write log line to log copy");
                         modified_copy
-                            .write("\n".as_bytes())
+                            .write_all(b"\n")
                             .expect("could not add newline to log copy");
                         item_offset += 1;
                     }
@@ -340,16 +310,13 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
                             Item::Event(e, offset) => {
                                 let mut e = e.clone();
                                 // look for end time
-                                for i in offset + 1..reader.larry.len() {
-                                    let i = parse_line(
-                                        &reader.larry.get(i).expect("larry failed us"),
+                                for j in offset + 1..reader.larry.len() {
+                                    let parsed = parse_line(
+                                        &reader.larry.get(j).expect("larry failed us"),
                                         0,
                                     );
-                                    match &i {
-                                        Item::Event(_, _) | Item::Done(_, _) => {
-                                            e.end = Some(i.time().unwrap().0.clone())
-                                        }
-                                        _ => (),
+                                    if let Item::Event(_, _) | Item::Done(_, _) = &parsed {
+                                        e.end = Some(parsed.time().unwrap().0.to_owned())
                                     }
                                     if e.end.is_some() {
                                         break;
@@ -365,12 +332,10 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
             } else {
                 warn("no change", &conf);
             }
+        } else if args.filter.notes {
+            warn("no note found", &conf)
         } else {
-            if matches.is_present("notes") {
-                warn("no note found", &conf)
-            } else {
-                warn("no event found", &conf)
-            }
+            warn("no event found", &conf)
         }
     } else {
         fatal(
@@ -381,8 +346,7 @@ pub fn run(directory: Option<&str>, matches: &ArgMatches) {
 }
 
 fn copy_path(conf: &Configuration) -> PathBuf {
-    let mut p = PathBuf::from_str(conf.directory().unwrap())
-        .expect("could not obtain JobLog base directory");
+    let mut p = PathBuf::from(conf.directory().unwrap());
     p.push("log.copy");
     p
 }
@@ -392,8 +356,7 @@ fn modified_copy(conf: &Configuration) -> File {
 }
 
 fn log_path(conf: &Configuration) -> PathBuf {
-    let mut p = PathBuf::from_str(conf.directory().unwrap())
-        .expect("could not obtain JobLog base directory");
+    let mut p = PathBuf::from(conf.directory().unwrap());
     p.push("log");
     p
 }

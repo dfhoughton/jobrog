@@ -1,14 +1,9 @@
-extern crate chrono;
-extern crate clap;
-
 use crate::configure::Configuration;
-use crate::log::{Event, Item, LogController};
+use crate::log::{Event, LogController};
 use crate::util::{check_for_ongoing_event, describe, display_events, warn};
 use chrono::Local;
-use clap::{App, SubCommand};
 
-fn after_help() -> &'static str {
-    "\
+pub const AFTER_HELP: &str = "\
 The done subcommand places a DONE timestamp in the job log. This is just a \
 timestamp followed by a colon and the word 'DONE':
 
@@ -17,20 +12,18 @@ timestamp followed by a colon and the word 'DONE':
 Generally one ends one task by beginning another, but you want to go off the clock \
 you can use the done subcommand.
 
-All prefixes of 'done' -- 'd', 'do', and 'don' -- are aliases."
-}
+All prefixes of 'done' -- 'd', 'do', and 'don' -- are aliases.";
 
-pub fn cli(mast: App<'static, 'static>, display_order: usize) -> App<'static, 'static> {
-    mast.subcommand(
-        SubCommand::with_name("done")
-            .aliases(&["d", "do", "don"])
-            .about("Ends a currently open task")
-            .after_help(after_help())
-            .display_order(display_order),
-    )
-}
+#[derive(Debug, clap::Args)]
+#[command(
+    aliases = ["d", "do", "don"],
+    about = "Ends a currently open task",
+    after_help = AFTER_HELP,
+    after_long_help = AFTER_HELP
+)]
+pub struct Args {}
 
-pub fn run(directory: Option<&str>) {
+pub fn run(directory: Option<&str>, _args: &Args) {
     let conf = Configuration::read(None, directory);
     let mut reader = LogController::new(None, &conf).expect("could not read log");
     if let Some(event) = reader.last_event() {
@@ -40,16 +33,16 @@ pub fn run(directory: Option<&str>) {
             describe(
                 "ending",
                 Some(&event.description),
-                Item::Done(done, offset),
+                crate::log::Item::Done(done, offset),
                 &conf,
             );
         } else {
             warn("the most recent event is not ongoing", &conf);
             let now = Local::now().naive_local();
-            let start = &event.start.clone();
+            let start = event.start;
             let event = Event::gather_by_day(vec![event], &now);
             println!();
-            display_events(event, start, &now, &conf);
+            display_events(event, &start, &now, &conf);
             println!();
             warn("no change to log", &conf)
         }

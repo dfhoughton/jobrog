@@ -1,76 +1,79 @@
-#[macro_use]
-extern crate clap;
-extern crate jobrog;
-
-use clap::{App, Arg};
+use clap::{CommandFactory, Parser, Subcommand};
 use jobrog::{
     add, configure, done, edit, first, last, note, parse, resume, statistics, summary, tag,
     truncate, util, vacation, when,
 };
 
-fn after_help() -> &'static str {
-    "The 'job' executable allows one to maintain and view a log of daily activity."
+const AFTER_HELP: &str =
+    "The 'job' executable allows one to maintain and view a log of daily activity.";
+
+#[derive(Parser)]
+#[command(
+    name = "job",
+    version,
+    author,
+    about = env!("CARGO_PKG_DESCRIPTION"),
+    after_help = AFTER_HELP,
+    after_long_help = AFTER_HELP
+)]
+struct Cli {
+    /// Looks in this directory for the log rather than ~/.joblog
+    ///
+    /// If you need or want to use a directory other than .joblog in your home directory
+    /// to store job log's log, vacation file, configuration file, and so forth, specify
+    /// this alternative directory with --directory. As with .joblog, if it does not
+    /// exist it will be created as needed.
+    #[arg(short = 'd', long, value_name = "dir")]
+    directory: Option<String>,
+
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+// the declaration order determines the order in which the subcommands are listed in the help
+#[derive(Subcommand)]
+enum Commands {
+    Add(add::Args),
+    Summary(summary::Args),
+    Done(done::Args),
+    Resume(resume::Args),
+    Last(last::Args),
+    First(first::Args),
+    Note(note::Args),
+    When(when::Args),
+    Tag(tag::Args),
+    Edit(edit::Args),
+    Configure(configure::Args),
+    Vacation(vacation::Args),
+    ParseTime(parse::Args),
+    Truncate(truncate::Args),
+    Statistics(statistics::Args),
 }
 
 fn main() {
-    let mut cli = App::new("job")
-        .version(crate_version!())
-        .author(crate_authors!())
-        .after_help(after_help())
-        .about(crate_description!())
-        .arg(
-            Arg::with_name("directory")
-                .long("directory")
-                .short("d")
-                .value_name("dir")
-                .help("Looks in this directory for the log rather than ~/.joblog")
-                .long_help(
-                    "If you need or want to use a directory other than .joblog \
-            in your home directory to store job log's log, vacation file, configuration \
-            file, and so forth, specify this alternative directory with --directory. \
-            As with .joblog, if it does not exist it will be created as needed.",
-                ),
-        );
-    // for determining the listing order
-    let order = [
-        add::cli,
-        summary::cli,
-        done::cli,
-        resume::cli,
-        last::cli,
-        first::cli,
-        note::cli,
-        when::cli,
-        tag::cli,
-        edit::cli,
-        configure::cli,
-        vacation::cli,
-        parse::cli,
-        truncate::cli,
-        statistics::cli,
-    ];
-    for (i, command) in order.iter().enumerate() {
-        cli = command(cli, i);
-    }
-    let matches = cli.get_matches();
-    let directory = matches.value_of("directory");
+    let cli = Cli::parse();
+    let directory = cli.directory.as_deref();
     util::init(directory);
-    match matches.subcommand() {
-        ("add", Some(m)) => add::run(directory, m),
-        ("note", Some(m)) => note::run(directory, m),
-        ("done", _) => done::run(directory),
-        ("edit", Some(m)) => edit::run(directory, m),
-        ("resume", Some(m)) => resume::run(directory, m),
-        ("last", Some(m)) => last::run(directory, m),
-        ("tag", Some(m)) => tag::run(directory, m),
-        ("first", Some(m)) => first::run(directory, m),
-        ("when", Some(m)) => when::run(directory, m),
-        ("summary", Some(m)) => summary::run(directory, m),
-        ("truncate", Some(m)) => truncate::run(directory, m),
-        ("configure", Some(m)) => configure::run(directory, m),
-        ("vacation", Some(m)) => vacation::run(directory, m),
-        ("statistics", Some(m)) => statistics::run(directory, m),
-        ("parse-time", Some(m)) => parse::run(directory, m),
-        _ => println!("{}", matches.usage()),
+    match cli.command {
+        Some(Commands::Add(args)) => add::run(directory, &args),
+        Some(Commands::Summary(args)) => summary::run(directory, &args),
+        Some(Commands::Done(args)) => done::run(directory, &args),
+        Some(Commands::Resume(args)) => resume::run(directory, &args),
+        Some(Commands::Last(args)) => last::run(directory, &args),
+        Some(Commands::First(args)) => first::run(directory, &args),
+        Some(Commands::Note(args)) => note::run(directory, &args),
+        Some(Commands::When(args)) => when::run(directory, &args),
+        Some(Commands::Tag(args)) => tag::run(directory, &args),
+        Some(Commands::Edit(args)) => edit::run(directory, &args),
+        Some(Commands::Configure(args)) => configure::run(directory, &args),
+        Some(Commands::Vacation(args)) => vacation::run(directory, &args),
+        Some(Commands::ParseTime(args)) => parse::run(directory, &args),
+        Some(Commands::Truncate(args)) => truncate::run(directory, &args),
+        Some(Commands::Statistics(args)) => statistics::run(directory, &args),
+        None => {
+            let mut cmd = Cli::command();
+            let _ = cmd.print_help();
+            println!();
+        }
     }
 }

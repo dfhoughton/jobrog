@@ -1,5 +1,21 @@
 # Change Log
 
+## 2.0.0 *2026-11-21*
+* moved to Rust edition 2021; minimum supported Rust version is now 1.85 (`rust-version` in `Cargo.toml`)
+* replaced clap 2 with clap 4 (derive API); the command-line interface is unchanged, including aliases and help text
+* replaced the pidgin PEG parser with hand-rolled parsers for log and vacation lines, removing the pidgin dependency
+* replaced `ansi_term` with `nu-ansi-term` and `term_size` with `terminal_size`
+* replaced `lazy_static` with `std::sync::LazyLock`
+* upgraded all dependencies to their latest versions (chrono 0.4, regex 1, larry 0.4, two_timer 3, colonnade 2, rust-ini 0.21, dirs 6, flate2 1, serde_json 1)
+* fixed a stack overflow in `find_line` when the sought time lay outside the range of timestamps in the log (e.g. `job truncate tomorrow` on a short log)
+* optimized release builds (`lto = "fat"`, `codegen-units = 1`, `panic = "abort"`, stripped symbols)
+* added integration tests for the CLI (`tests/cli.rs`) and a CI workflow (fmt, clippy `-D warnings`, tests)
+* clippy-clean: no warnings with `cargo clippy --all-targets -- -D warnings`; code formatted with `cargo fmt`
+
+## 1.1.2
+* upgraded some dependencies -- notably, an upgrade to two-timer allows the parsing of 12 as December in appropriate contexts
+## 1.1.1 *2023-1-29*
+* bumped dependencies to satisfy cargo-audit
 ## 1.1.0 *2022-8-6*
 * bumped dirs and clapp versions
 * added time budget to when command

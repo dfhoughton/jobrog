@@ -1,90 +1,107 @@
-// stuff for
-extern crate chrono;
-extern crate clap;
-extern crate larry;
-extern crate pidgin;
-extern crate regex;
-extern crate serde_json;
 use crate::configure::Configuration;
-use crate::util::{duration_string, log_path};
+use crate::util::{duration_string, log_path, FilterArgs};
 use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, Timelike};
-use clap::ArgMatches;
 use larry::Larry;
-use pidgin::{Grammar, Matcher};
 use regex::{Regex, RegexSet};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Lines, Write};
 use std::path::PathBuf;
+use std::sync::LazyLock;
 
-lazy_static! {
-    // making this public is useful for testing, but best to keep it hidden to
-    // limit complexity and commitment
-    #[doc(hidden)]
-    pub static ref LOG_LINES: Grammar = grammar!{
-
-        TOP -> r(r"\A") <log_item> r(r"\z")
-
-        log_item         -> <timestamped_item> | <blank> | <comment>
-        blank            -> r(r"\s*")
-        comment          -> r(r"\s*#.*")
-        timestamped_item -> <timestamp> <ti_continuation>
-        timestamp        -> r(r"\s*[1-9]\d{3}(?:\s+\d{1,2}){5}\s*")
-        ti_continuation  -> <taggable> | <done>
-        taggable         -> <tag_separator> <tags> (":") <description>
-        tag_separator    -> <event> | <note>
-        event            -> (":")
-        note             -> ("<NOTE>")
-        done             -> r(r":DONE\s*")
-        tags             -> r(r"(?:\\.|[^:<\\])*") // colons, spaces, and < must be escaped, so the escape character \ must also be escaped
-        description      -> r(r".*")
-    };
-    pub static ref MATCHER: Matcher = LOG_LINES.matcher().unwrap();
-}
+// a log line begins with a timestamp: a four-digit year followed by five one- or
+// two-digit numbers, all separated by whitespace
+static TIMESTAMP_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\A\s*[1-9]\d{3}(?:\s+\d{1,2}){5}\s*").unwrap());
 
 // parses a log line into an appropriate data structure preserving the line offset
 pub fn parse_line(line: &str, offset: usize) -> Item {
-    if let Some(ast) = MATCHER.parse(line) {
-        if let Some(timestamp) = ast.name("timestamp") {
-            match parse_timestamp(timestamp.as_str()) {
-                Err(s) => Item::Error(s, offset),
-                Ok(timestamp) => {
-                    if ast.has("done") {
-                        Item::Done(Done(timestamp), offset)
-                    } else {
-                        let tags = parse_tags(ast.name("tags").unwrap().as_str());
-                        let description = ast.name("description").unwrap().as_str();
-                        if ast.has("event") {
-                            Item::Event(
-                                Event {
-                                    start: timestamp,
-                                    start_overlap: false,
-                                    end: None,
-                                    end_overlap: false,
-                                    description: description.to_owned(),
-                                    tags: tags,
-                                    vacation: false,
-                                    vacation_type: None,
-                                },
-                                offset,
-                            )
-                        } else {
-                            Item::Note(
-                                Note {
-                                    time: timestamp,
-                                    description: description.to_owned(),
-                                    tags: tags,
-                                },
-                                offset,
-                            )
-                        }
+    // the line grammar tolerates trailing whitespace (including line terminators) at the
+    // end of the line; anything else after an embedded newline makes the line unparseable
+    let content = match line.find('\n') {
+        Some(i) => {
+            if line[i..].chars().all(|c| c.is_whitespace()) {
+                &line[..i]
+            } else {
+                return Item::Error(String::from("unexpected line format"), offset);
+            }
+        }
+        None => line,
+    };
+    if let Some(m) = TIMESTAMP_RE.find(content) {
+        let rest = &content[m.end()..];
+        // a DONE line is a timestamp followed by ":DONE" and nothing but whitespace
+        if let Some(after) = rest.strip_prefix(":DONE") {
+            if after.chars().all(|c| c.is_whitespace()) {
+                return match parse_timestamp(m.as_str()) {
+                    Err(s) => Item::Error(s, offset),
+                    Ok(timestamp) => Item::Done(Done(timestamp), offset),
+                };
+            }
+        }
+        // otherwise the timestamp is followed by ":" (an event) or "<NOTE>" (a note),
+        // then tags, then ":", then the description
+        let (is_note, sep_len) = if rest.starts_with("<NOTE>") {
+            (true, "<NOTE>".len())
+        } else if rest.starts_with(':') {
+            (false, 1)
+        } else {
+            return Item::Error(String::from("unexpected line format"), offset);
+        };
+        let tags_and_description = &rest[sep_len..];
+        // scan the tags for the terminating unescaped ':'; tags may not contain an
+        // unescaped ':' or '<', and a trailing lone backslash is an error
+        let mut chars = tags_and_description.char_indices();
+        let colon = loop {
+            match chars.next() {
+                None => return Item::Error(String::from("unexpected line format"), offset),
+                Some((_, '\\')) => {
+                    if chars.next().is_none() {
+                        return Item::Error(String::from("unexpected line format"), offset);
                     }
                 }
+                Some((i, ':')) => break i,
+                Some((_, '<')) => {
+                    return Item::Error(String::from("unexpected line format"), offset)
+                }
+                Some(_) => (),
             }
-        } else if ast.has("blank") {
-            Item::Blank(offset)
-        } else {
-            Item::Comment(offset)
+        };
+        let tags = parse_tags(&tags_and_description[..colon]);
+        // leading whitespace between the ':' and the description is not part of the description
+        let description = tags_and_description[colon + 1..].trim_start();
+        match parse_timestamp(m.as_str()) {
+            Err(s) => Item::Error(s, offset),
+            Ok(timestamp) => {
+                if is_note {
+                    Item::Note(
+                        Note {
+                            time: timestamp,
+                            description: description.to_owned(),
+                            tags,
+                        },
+                        offset,
+                    )
+                } else {
+                    Item::Event(
+                        Event {
+                            start: timestamp,
+                            start_overlap: false,
+                            end: None,
+                            end_overlap: false,
+                            description: description.to_owned(),
+                            tags,
+                            vacation: false,
+                            vacation_type: None,
+                        },
+                        offset,
+                    )
+                }
+            }
         }
+    } else if content.chars().all(|c| c.is_whitespace()) {
+        Item::Blank(offset)
+    } else if content.trim_start().starts_with('#') {
+        Item::Comment(offset)
     } else {
         Item::Error(String::from("unexpected line format"), offset)
     }
@@ -102,12 +119,12 @@ impl LogController {
     ) -> Result<LogController, std::io::Error> {
         let log = log.unwrap_or(log_path(conf.directory()));
         let path = log.as_path().to_str();
-        Larry::new(log.as_path()).and_then(|log| {
-            Ok(LogController {
-                larry: log,
-                path: path.unwrap().to_owned(),
+        Larry::new(log.as_path())
+            .map(|larry| LogController {
+                larry,
+                path: path.expect("log path is not valid UTF-8").to_owned(),
             })
-        })
+            .map_err(std::io::Error::other)
     }
     // find best line offset for a timestamp in a log file
     // best is the earliest instance of the line with the timestamp or, barring that, the earliest
@@ -123,11 +140,11 @@ impl LogController {
     }
     pub fn first_timestamp(&self) -> Option<NaiveDateTime> {
         let item = ItemsAfter::new(0, &self.path).find(|i| i.has_time());
-        item.and_then(|i| Some(i.time().unwrap().0.clone()))
+        item.map(|i| *i.time().unwrap().0)
     }
     pub fn last_timestamp(&mut self) -> Option<NaiveDateTime> {
         let item = ItemsBefore::new(self.larry.len(), self).find(|i| i.has_time());
-        item.and_then(|i| Some(i.time().unwrap().0.clone()))
+        item.map(|i| *i.time().unwrap().0)
     }
     fn narrow_in(&mut self, time: &NaiveDateTime, start: Item, end: Item) -> Item {
         let start = self.advance_to_first(start);
@@ -138,6 +155,13 @@ impl LogController {
         let (t2, o2) = end.time().unwrap();
         if t2 == time {
             return end;
+        } else if t2 < time {
+            // the sought time is beyond every line in this bracket, so the best line
+            // is the first line bearing the bracket's latest timestamp
+            return self.advance_to_first(end);
+        } else if t1 > time {
+            // the sought time is before every line in this bracket
+            return start;
         } else if t1 == t2 {
             return start;
         }
@@ -157,18 +181,27 @@ impl LogController {
                 if o3 == o1 {
                     return start;
                 }
-            } else {
-                if let Some((t, _)) = next.time() {
-                    if t == time {
-                        return next;
-                    } else if t < time {
-                        return self.narrow_in(time, next, end);
-                    } else {
-                        return self.narrow_in(time, start, next);
+            } else if let Some((t, _)) = next.time() {
+                match t.cmp(time) {
+                    std::cmp::Ordering::Equal => return next,
+                    std::cmp::Ordering::Less => {
+                        // recurse only if the lower bound's timestamp would advance;
+                        // otherwise every line up to o3 shares start's timestamp and the
+                        // recursive call would repeat this one forever
+                        if self.advance_to_first(next.clone()) == start {
+                            o1 = o3;
+                            o3 = self.estimate(time, t1, o1, t2, o2);
+                            if o3 == o1 {
+                                return start;
+                            }
+                        } else {
+                            return self.narrow_in(time, next, end);
+                        }
                     }
-                } else {
-                    unreachable!()
+                    std::cmp::Ordering::Greater => return self.narrow_in(time, start, next),
                 }
+            } else {
+                unreachable!()
             }
         }
     }
@@ -192,9 +225,9 @@ impl LogController {
                     // switch to binary search
                     return o1 + line_delta / 2;
                 }
-                let time_delta = t2.timestamp() - t1.timestamp();
+                let time_delta = t2.and_utc().timestamp() - t1.and_utc().timestamp();
                 let lines_per_second = (line_delta as f64) / (time_delta as f64);
-                let seconds = (time.timestamp() - t1.timestamp()) as f64;
+                let seconds = (time.and_utc().timestamp() - t1.and_utc().timestamp()) as f64;
                 let additional_lines = (lines_per_second * seconds) as usize;
                 // we've already looked at the end offsets, so make sure we don't hit those again
                 let additional_lines = if additional_lines == 0 {
@@ -212,9 +245,9 @@ impl LogController {
     // this moves forward from earlier lines to later
     fn get_after(&mut self, i: usize) -> Option<Item> {
         for i in i..self.larry.len() {
-            let item = parse_line(self.larry.get(i).unwrap(), i);
+            let item = parse_line(&self.larry.get(i).unwrap(), i);
             let t = item.time();
-            if let Some((_, _)) = t {
+            if t.is_some() {
                 return Some(item);
             }
         }
@@ -232,7 +265,7 @@ impl LogController {
             i = self.larry.len() - 1;
         }
         loop {
-            let item = parse_line(self.larry.get(i).unwrap(), i);
+            let item = parse_line(&self.larry.get(i).unwrap(), i);
             match item {
                 Item::Done(_, _) | Item::Note(_, _) | Item::Event(_, _) => return item,
                 _ => (),
@@ -251,13 +284,13 @@ impl LogController {
         let mut ptr = item.clone();
         while i > 0 {
             i -= 1;
-            let next = parse_line(self.larry.get(i).unwrap(), i);
+            let next = parse_line(&self.larry.get(i).unwrap(), i);
             let next_time = next.time();
             if let Some((next_time, _)) = next_time {
-                if time == next_time {
-                    ptr = next;
-                } else if time > next_time {
-                    return ptr;
+                match time.cmp(next_time) {
+                    std::cmp::Ordering::Equal => ptr = next,
+                    std::cmp::Ordering::Greater => return ptr,
+                    std::cmp::Ordering::Less => (),
                 }
             }
         }
@@ -354,7 +387,7 @@ impl LogController {
         }
     }
     fn needs_newline(&mut self) -> bool {
-        if self.larry.len() > 0 {
+        if !self.larry.is_empty() {
             let last_line = self
                 .larry
                 .get(self.larry.len() - 1)
@@ -380,17 +413,13 @@ impl LogController {
         self.append_to_log(done, "could not append DONE line to log")
     }
     pub fn append_to_log<T: LogLine>(&mut self, item: T, error_message: &str) -> (T, usize) {
-        let mut log = OpenOptions::new()
-            .write(true)
-            .append(true)
-            .open(&self.path)
-            .unwrap();
+        let mut log = OpenOptions::new().append(true).open(&self.path).unwrap();
         if self.needs_newline() {
-            writeln!(log, "").expect("could not append to log file");
+            writeln!(log).expect("could not append to log file");
         }
-        let now = Local::today().naive_local();
+        let now = Local::now().naive_local();
         if let Some(ts) = self.last_timestamp() {
-            if ts.date() != now {
+            if ts.date() != now.date() {
                 writeln!(log, "# {}/{}/{}", now.year(), now.month(), now.day())
                     .expect("could not append date comment to log");
             }
@@ -412,7 +441,7 @@ pub struct ItemsBefore<'a> {
     larry: &'a mut Larry,
 }
 
-impl<'a> ItemsBefore<'a> {
+impl ItemsBefore<'_> {
     fn new(offset: usize, reader: &mut LogController) -> ItemsBefore {
         ItemsBefore {
             offset: if offset == 0 { None } else { Some(offset) },
@@ -421,13 +450,13 @@ impl<'a> ItemsBefore<'a> {
     }
 }
 
-impl<'a> Iterator for ItemsBefore<'a> {
+impl Iterator for ItemsBefore<'_> {
     type Item = Item;
     fn next(&mut self) -> Option<Item> {
         if let Some(o) = self.offset {
             let o2 = o - 1;
             let line = self.larry.get(o2).unwrap();
-            let item = parse_line(line, o);
+            let item = parse_line(&line, o);
             self.offset = if o2 > 0 { Some(o2) } else { None };
             Some(item)
         } else {
@@ -470,7 +499,7 @@ pub struct NotesBefore<'a> {
     item_iterator: ItemsBefore<'a>,
 }
 
-impl<'a> NotesBefore<'a> {
+impl NotesBefore<'_> {
     fn new(offset: usize, reader: &mut LogController) -> NotesBefore {
         NotesBefore {
             item_iterator: ItemsBefore::new(offset, reader),
@@ -478,15 +507,14 @@ impl<'a> NotesBefore<'a> {
     }
 }
 
-impl<'a> Iterator for NotesBefore<'a> {
+impl Iterator for NotesBefore<'_> {
     type Item = Note;
     fn next(&mut self) -> Option<Note> {
         loop {
             let item = self.item_iterator.next();
             if let Some(item) = item {
-                match item {
-                    Item::Note(n, _) => return Some(n),
-                    _ => (),
+                if let Item::Note(n, _) = item {
+                    return Some(n);
                 }
             } else {
                 return None;
@@ -513,9 +541,8 @@ impl Iterator for NotesAfter {
         loop {
             let item = self.item_iterator.next();
             if let Some(item) = item {
-                match item {
-                    Item::Note(n, _) => return Some(n),
-                    _ => (),
+                if let Item::Note(n, _) = item {
+                    return Some(n);
                 }
             } else {
                 return None;
@@ -529,21 +556,14 @@ pub struct EventsBefore<'a> {
     item_iterator: ItemsBefore<'a>,
 }
 
-impl<'a> EventsBefore<'a> {
+impl EventsBefore<'_> {
     fn new(offset: usize, reader: &mut LogController) -> EventsBefore {
         // the last event may be underway at the offset, so find out when it ends
         let items_after = ItemsAfter::new(offset, &reader.path);
         let timed_item = items_after
-            .filter(|i| match i {
-                Item::Event(_, _) | Item::Done(_, _) => true,
-                _ => false,
-            })
+            .filter(|i| matches!(i, Item::Event(_, _) | Item::Done(_, _)))
             .find(|i| i.time().is_some());
-        let last_time = if let Some(i) = timed_item {
-            Some(i.time().unwrap().0.to_owned())
-        } else {
-            None
-        };
+        let last_time = timed_item.map(|i| i.time().unwrap().0.to_owned());
         EventsBefore {
             last_time,
             item_iterator: ItemsBefore::new(offset, reader),
@@ -551,32 +571,24 @@ impl<'a> EventsBefore<'a> {
     }
 }
 
-impl<'a> Iterator for EventsBefore<'a> {
+impl Iterator for EventsBefore<'_> {
     type Item = Event;
     fn next(&mut self) -> Option<Event> {
         let mut last_time = self.last_time;
         let mut event: Option<Event> = None;
-        loop {
-            if let Some(i) = self.item_iterator.next() {
-                match i {
-                    Item::Event(e, _) => {
-                        event = Some(e.bounded_time(last_time));
-                        break;
-                    }
-                    Item::Done(d, _) => {
-                        last_time = Some(d.0);
-                    }
-                    _ => (),
+        for i in self.item_iterator.by_ref() {
+            match i {
+                Item::Event(e, _) => {
+                    event = Some(e.bounded_time(last_time));
+                    break;
                 }
-            } else {
-                break;
+                Item::Done(d, _) => {
+                    last_time = Some(d.0);
+                }
+                _ => (),
             }
         }
-        self.last_time = if event.is_some() {
-            Some(event.as_ref().unwrap().start.clone())
-        } else {
-            last_time
-        };
+        self.last_time = event.as_ref().map_or(last_time, |e| Some(e.start));
         event
     }
 }
@@ -599,7 +611,7 @@ impl EventsAfter {
             if let Some(i) = self.item_iterator.next() {
                 match i {
                     Item::Event(e, _) => {
-                        let time = e.start.clone();
+                        let time = e.start;
                         self.next_item = Some(e);
                         return Some(time);
                     }
@@ -621,881 +633,13 @@ impl Iterator for EventsAfter {
         }
         loop {
             if let Some(i) = self.item_iterator.next() {
-                match i {
-                    Item::Event(e, _) => return Some(e.bounded_time(self.get_end_time())),
-                    _ => (),
+                if let Item::Event(e, _) = i {
+                    return Some(e.bounded_time(self.get_end_time()));
                 }
             } else {
                 return None;
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use chrono::Duration;
-    use rand::seq::SliceRandom;
-    use rand::{thread_rng, Rng};
-    use std::fs::File;
-    use std::io::LineWriter;
-    use std::ops::AddAssign;
-    use std::str::FromStr;
-
-    enum Need {
-        E,
-        N,
-        B,
-        C,
-        Error,
-    }
-
-    fn random_tag() -> String {
-        let choices = ["foo", "bar", "baz", "plugh", "work", "play", "tedium"];
-        choices[rand::thread_rng().gen_range(0, choices.len())].to_owned()
-    }
-
-    fn random_words(min: usize, max: usize) -> Vec<String> {
-        (0..(rand::thread_rng().gen_range(min, max + 1)))
-            .map(|_| random_tag())
-            .collect()
-    }
-
-    fn random_tags() -> Vec<String> {
-        let mut tags = random_words(0, 5);
-        tags.sort_unstable();
-        tags.dedup();
-        tags
-    }
-
-    fn random_text() -> String {
-        let mut words = random_words(5, 15);
-        let mut word = words.remove(0);
-        for w in words {
-            word += " ";
-            word.push_str(&w);
-        }
-        word
-    }
-
-    fn random_line(
-        time: &mut NaiveDateTime,
-        open_event: bool,
-        offset: usize,
-        need: Option<Need>,
-    ) -> Item {
-        let n = rand::thread_rng().gen_range(0, 100);
-        let need = if let Some(need) = need {
-            need
-        } else {
-            if n < 4 {
-                Need::B
-            } else if n < 10 {
-                Need::C
-            } else if n < 11 {
-                Need::Error
-            } else if n < 20 {
-                Need::N
-            } else {
-                Need::E
-            }
-        };
-        match need {
-            Need::B => Item::Blank(offset),
-            Need::C => {
-                let mut comment = String::from("# ");
-                comment.push_str(&random_text());
-                Item::Comment(offset)
-            }
-            Need::Error => Item::Error(random_text(), offset),
-            Need::N => {
-                time.add_assign(Duration::seconds(rand::thread_rng().gen_range(1, 1000)));
-                Item::Note(
-                    Note {
-                        time: time.clone(),
-                        description: random_text(),
-                        tags: random_tags(),
-                    },
-                    offset,
-                )
-            }
-            Need::E => {
-                time.add_assign(Duration::seconds(rand::thread_rng().gen_range(1, 1000)));
-                if open_event && n < 30 {
-                    Item::Done(Done(time.clone()), offset)
-                } else {
-                    Item::Event(
-                        Event {
-                            start: time.clone(),
-                            start_overlap: false,
-                            end: None,
-                            end_overlap: false,
-                            tags: random_tags(),
-                            description: random_text(),
-                            vacation: false,
-                            vacation_type: None,
-                        },
-                        offset,
-                    )
-                }
-            }
-        }
-    }
-
-    // the need is a set of things you need at least one of in the log
-    fn random_log(length: usize, need: Vec<Need>, disambiguator: &str) -> (Vec<Item>, String) {
-        let mut initial_time = NaiveDate::from_ymd(2019, 12, 22).and_hms(9, 39, 30);
-        let mut items: Vec<Item> = Vec::with_capacity(length);
-        let mut open_event = false;
-        // tests are run in parallel, so we need to prevent collisions, but it's nice to
-        // have the files handy to look at in case of failure
-        // this technique seems to suffice
-        let path = format!(
-            "{}-{}-{}.log",
-            disambiguator,
-            length,
-            Local::now().naive_local().timestamp_millis()
-        );
-        let file = File::create(path.clone()).unwrap();
-        let mut file = LineWriter::new(file);
-        let mut need: Vec<(usize, Need)> = if need.is_empty() {
-            vec![]
-        } else {
-            // randomly assign needs to lines
-            let mut indices: Vec<usize> = (0..length).collect();
-            indices.shuffle(&mut thread_rng());
-            let mut need = need;
-            need.shuffle(&mut thread_rng());
-            let mut need = need
-                .into_iter()
-                .map(|n| (indices.remove(0), n))
-                .collect::<Vec<_>>();
-            need.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
-            need
-        };
-        for offset in 0..length {
-            let t = if let Some((i, _)) = need.get(0) {
-                if i == &offset {
-                    let t = need.remove(0).1;
-                    Some(t)
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-            let item = random_line(&mut initial_time, open_event, offset, t);
-            open_event = match item {
-                Item::Done(_, _) => false,
-                Item::Event(_, _) => true,
-                _ => open_event,
-            };
-            let line = match &item {
-                Item::Event(e, _) => e.to_line(),
-                Item::Note(n, _) => n.to_line(),
-                Item::Done(d, _) => d.to_line(),
-                Item::Blank(_) => String::new(),
-                Item::Comment(_) => {
-                    let mut s = String::from("# ");
-                    s.push_str(&random_text());
-                    s
-                }
-                Item::Error(s, _) => s.clone(),
-            };
-            file.write_all(line.as_ref()).unwrap();
-            file.write_all("\n".as_ref()).unwrap();
-            if item.has_time() {
-                items.push(item);
-            }
-        }
-        (items, path)
-    }
-
-    fn closed_events(mut items: Vec<Item>) -> Vec<Event> {
-        items.reverse();
-        let mut ret = Vec::with_capacity(items.len());
-        let mut last_time: Option<NaiveDateTime> = None;
-        for i in items.iter() {
-            match i {
-                Item::Done(Done(t), _) => last_time = Some(t.clone()),
-                Item::Event(e, _) => {
-                    let mut e = e.clone();
-                    if last_time.is_some() {
-                        e.end = last_time;
-                    }
-                    last_time = Some(e.start.clone());
-                    ret.push(e);
-                }
-                _ => (),
-            }
-        }
-        ret.reverse();
-        ret
-    }
-
-    fn notes(items: Vec<Item>) -> Vec<Note> {
-        let mut ret = Vec::with_capacity(items.len());
-        for i in items.iter() {
-            match i {
-                Item::Note(n, _) => {
-                    ret.push(n.clone());
-                }
-                _ => (),
-            }
-        }
-        ret
-    }
-
-    fn test_configuration(path: &str) -> (String, Configuration) {
-        let conf_path = format!("{}_conf", path);
-        File::create(
-            PathBuf::from_str(&conf_path)
-                .expect(&format!("could not create path {}", conf_path))
-                .as_path(),
-        )
-        .expect(&format!("could not create file {}", conf_path));
-        let pb = PathBuf::from_str(&conf_path)
-            .expect(&format!("could not form path from {}", conf_path));
-        let conf = Configuration::read(Some(pb), None);
-        (conf_path, conf)
-    }
-
-    fn cleanup(paths: &[&str]) {
-        for p in paths {
-            let pb = PathBuf::from_str(p).expect(&format!("cannot form a path from {}", p));
-            if pb.as_path().exists() {
-                std::fs::remove_file(p).expect(&format!("failed to remove {}", p))
-            }
-        }
-    }
-
-    #[test]
-    fn test_notes_in_range() {
-        let (items, path) = random_log(100, vec![Need::N, Need::N], "test_notes_in_range");
-        let notes = notes(items);
-        assert!(notes.len() > 1, "found more than one note");
-        let (conf_path, conf) = test_configuration("test_notes_in_range");
-        let mut log_reader =
-            LogController::new(Some(PathBuf::from_str(&path).unwrap()), &conf).unwrap();
-        for i in 0..notes.len() - 1 {
-            for j in i..notes.len() {
-                let found_notes = log_reader.notes_in_range(&notes[i].time, &notes[j].time);
-                assert!(
-                    j - i == found_notes.len(),
-                    "found as many events as expected"
-                );
-                for offset in 0..found_notes.len() {
-                    let k = i + offset;
-                    assert_eq!(notes[k].time, found_notes[offset].time, "same time");
-                    assert_eq!(notes[k].tags, found_notes[offset].tags, "same tags");
-                    assert_eq!(
-                        notes[k].description, found_notes[offset].description,
-                        "same description"
-                    );
-                }
-            }
-        }
-        cleanup(&[&path, &conf_path]);
-    }
-
-    #[test]
-    fn test_events_in_range() {
-        let (items, path) = random_log(20, vec![Need::E, Need::E], "test_events_in_range");
-        let events = closed_events(items);
-        assert!(events.len() > 1, "found more than one event");
-        let (conf_path, conf) = test_configuration("test_events_in_range");
-        let mut log_reader =
-            LogController::new(Some(PathBuf::from_str(&path).unwrap()), &conf).unwrap();
-        for i in 0..events.len() - 1 {
-            for j in i..events.len() {
-                let found_events = log_reader.events_in_range(&events[i].start, &events[j].start);
-                assert!(
-                    j - i <= found_events.len(),
-                    "found at least as many events as expected"
-                );
-                for offset in 0..found_events.len() {
-                    let k = i + offset;
-                    assert_eq!(events[k].start, found_events[offset].start, "same start");
-                    assert_eq!(events[k].end, found_events[offset].end, "same end");
-                    assert_eq!(events[k].tags, found_events[offset].tags, "same tags");
-                    assert_eq!(
-                        events[k].description, found_events[offset].description,
-                        "same description"
-                    );
-                }
-            }
-        }
-        cleanup(&[&path, &conf_path]);
-    }
-
-    #[test]
-    fn test_notes_from_end() {
-        let (items, path) = random_log(100, vec![Need::N], "test_notes_from_end");
-        let mut notes = notes(items);
-        notes.reverse();
-        let (conf_path, conf) = test_configuration("test_notes_from_end");
-        let mut log_reader =
-            LogController::new(Some(PathBuf::from_str(&path).unwrap()), &conf).unwrap();
-        let found_notes = log_reader.notes_from_the_end().collect::<Vec<_>>();
-        assert_eq!(
-            notes.len(),
-            found_notes.len(),
-            "found the right number of notes"
-        );
-        for (i, e) in notes.iter().enumerate() {
-            assert_eq!(e.time, found_notes[i].time, "they occur at the same time");
-            assert_eq!(e.tags, found_notes[i].tags, "they have the same tags");
-            assert_eq!(
-                e.description, found_notes[i].description,
-                "they have the same text"
-            );
-        }
-        cleanup(&[&path, &conf_path]);
-    }
-
-    #[test]
-    fn test_notes_from_beginning() {
-        let (items, path) = random_log(103, vec![Need::N], "test_notes_from_beginning");
-        let notes = notes(items);
-        let (conf_path, conf) = test_configuration("test_notes_from_beginning");
-        let log_reader =
-            LogController::new(Some(PathBuf::from_str(&path).unwrap()), &conf).unwrap();
-        let found_notes = log_reader.notes_from_the_beginning().collect::<Vec<_>>();
-        assert_eq!(
-            notes.len(),
-            found_notes.len(),
-            "found the right number of notes"
-        );
-        for (i, n) in notes.iter().enumerate() {
-            assert_eq!(n.time, found_notes[i].time, "they occur at the same time");
-            assert_eq!(n.tags, found_notes[i].tags, "they have the same tags");
-            assert_eq!(
-                n.description, found_notes[i].description,
-                "they have the same text"
-            );
-        }
-        cleanup(&[&path, &conf_path]);
-    }
-
-    #[test]
-    fn test_events_from_end() {
-        let (items, path) = random_log(107, vec![Need::E], "test_events_from_end");
-        let mut events = closed_events(items);
-        events.reverse();
-        let (conf_path, conf) = test_configuration("test_events_from_end");
-        let mut log_reader =
-            LogController::new(Some(PathBuf::from_str(&path).unwrap()), &conf).unwrap();
-        let found_events = log_reader.events_from_the_end().collect::<Vec<_>>();
-        assert_eq!(
-            events.len(),
-            found_events.len(),
-            "found the right number of events"
-        );
-        for (i, e) in events.iter().enumerate() {
-            assert_eq!(
-                e.start, found_events[i].start,
-                "they start at the same time"
-            );
-            assert_eq!(e.end, found_events[i].end, "they end at the same time");
-            assert_eq!(e.tags, found_events[i].tags, "they have the same tags");
-            assert_eq!(
-                e.description, found_events[i].description,
-                "they have the same description"
-            );
-        }
-        cleanup(&[&path, &conf_path]);
-    }
-
-    #[test]
-    fn test_events_from_beginning() {
-        let (items, path) = random_log(100, vec![Need::E], "test_events_from_beginning");
-        let events = closed_events(items);
-        let (conf_path, conf) = test_configuration("test_events_from_beginning");
-        let log_reader =
-            LogController::new(Some(PathBuf::from_str(&path).unwrap()), &conf).unwrap();
-        let found_events = log_reader.events_from_the_beginning().collect::<Vec<_>>();
-        assert_eq!(
-            events.len(),
-            found_events.len(),
-            "found the right number of events"
-        );
-        for (i, e) in events.iter().enumerate() {
-            assert_eq!(
-                e.start, found_events[i].start,
-                "they start at the same time"
-            );
-            assert_eq!(e.end, found_events[i].end, "they end at the same time");
-            assert_eq!(e.tags, found_events[i].tags, "they have the same tags");
-            assert_eq!(
-                e.description, found_events[i].description,
-                "they have the same description"
-            );
-        }
-        cleanup(&[&path, &conf_path]);
-    }
-
-    fn test_log(length: usize, disambiguator: &str) {
-        let (items, path) = random_log(length, vec![], disambiguator);
-        if items.is_empty() {
-            println!("empty file; skipping...");
-        } else {
-            let (conf_path, conf) = test_configuration(&path);
-            let mut log_reader =
-                LogController::new(Some(PathBuf::from_str(&path).unwrap()), &conf).unwrap();
-            let mut last_timed_item: Option<Item> = None;
-            for item in items {
-                let (time, offset) = item.time().unwrap();
-                let found_item = log_reader.find_line(time);
-                if let Some(found_item) = found_item {
-                    assert_eq!(offset, found_item.offset());
-                    if let Some(lti) = last_timed_item.clone() {
-                        let (t1, _) = lti.time().unwrap();
-                        let (t2, _) = found_item.time().unwrap();
-                        let d = *t2 - *t1;
-                        if d.num_seconds() > 1 {
-                            let intermediate_time = t1
-                                .checked_add_signed(Duration::seconds(d.num_seconds() / 2))
-                                .unwrap();
-                            let should_be_found = log_reader.find_line(&intermediate_time);
-                            if let Some(should_be_found) = should_be_found {
-                                assert_eq!(last_timed_item.unwrap(), should_be_found);
-                            } else {
-                                assert!(false, "failed to revert to found time when looking for missing intermediate time {}", intermediate_time);
-                            }
-                        }
-                    }
-                    last_timed_item = Some(found_item);
-                } else {
-                    assert!(false, "could not find item at offset {}", offset);
-                }
-                cleanup(&[&conf_path]);
-            }
-        }
-        cleanup(&[&path]);
-    }
-
-    #[test]
-    fn test_empty_file() {
-        test_log(0, "test_empty_file");
-    }
-
-    #[test]
-    fn test_100_tiny_files() {
-        for i in 0..100 {
-            test_log(5, &format!("test_100_tiny_files_{}", i));
-        }
-    }
-
-    #[test]
-    fn test_10_small_files() {
-        for i in 0..10 {
-            test_log(100, &format!("test_10_small_files_{}", i));
-        }
-    }
-
-    #[test]
-    fn test_large_file() {
-        test_log(10000, "test_large_file");
-    }
-
-    #[test]
-    fn test_event() {
-        match parse_line("2019 12 1 16 3 30::an event with no tags", 0) {
-            Item::Event(
-                Event {
-                    start,
-                    tags,
-                    description,
-                    ..
-                },
-                _,
-            ) => {
-                assert_eq!(2019, start.year());
-                assert_eq!(12, start.month());
-                assert_eq!(1, start.day());
-                assert_eq!(16, start.hour());
-                assert_eq!(3, start.minute());
-                assert_eq!(30, start.second());
-                assert!(tags.is_empty(), "there are no tags");
-                assert_eq!(
-                    "an event with no tags", &description,
-                    "got correct description"
-                )
-            }
-            _ => assert!(false, "failed to parse an event line"),
-        };
-        match parse_line("2019 12 1 16 3 30:foo bar:an event with some tags", 0) {
-            Item::Event(
-                Event {
-                    start,
-                    tags,
-                    description,
-                    ..
-                },
-                _,
-            ) => {
-                assert_eq!(2019, start.year());
-                assert_eq!(12, start.month());
-                assert_eq!(1, start.day());
-                assert_eq!(16, start.hour());
-                assert_eq!(3, start.minute());
-                assert_eq!(30, start.second());
-                assert_eq!(2, tags.len(), "there are some tags");
-                for t in vec!["foo", "bar"] {
-                    assert!(tags.contains(&t.to_owned()));
-                }
-                assert_eq!(
-                    "an event with some tags", &description,
-                    "got correct description"
-                )
-            }
-            _ => assert!(false, "failed to parse an event line"),
-        };
-        // can parse tags with spaces
-        match parse_line("2019 12 1 16 3 30:foo\\ bar:an event with some tags", 0) {
-            Item::Event(
-                Event {
-                    start,
-                    tags,
-                    description,
-                    ..
-                },
-                _,
-            ) => {
-                assert_eq!(2019, start.year());
-                assert_eq!(12, start.month());
-                assert_eq!(1, start.day());
-                assert_eq!(16, start.hour());
-                assert_eq!(3, start.minute());
-                assert_eq!(30, start.second());
-                assert_eq!(1, tags.len(), "there are some tags");
-                for t in vec!["foo bar"] {
-                    assert!(tags.contains(&t.to_owned()));
-                }
-                assert_eq!(
-                    "an event with some tags", &description,
-                    "got correct description"
-                )
-            }
-            _ => assert!(false, "failed to parse an event line"),
-        };
-        //regression?
-        match parse_line("2019 12 22 12 49 24:foo:plugh baz baz foo play play work baz tedium foo tedium foo work bar", 0) {
-            Item::Event(
-                Event {
-                    start,
-                    tags,
-                    description,
-                    ..
-                },
-                _,
-            ) => {
-                assert_eq!(2019, start.year());
-                assert_eq!(12, start.month());
-                assert_eq!(22, start.day());
-                assert_eq!(12, start.hour());
-                assert_eq!(49, start.minute());
-                assert_eq!(24, start.second());
-                assert_eq!(1, tags.len(), "there are some tags");
-                for t in vec!["foo"] {
-                    assert!(tags.contains(&t.to_owned()));
-                }
-                assert_eq!(
-                    "plugh baz baz foo play play work baz tedium foo tedium foo work bar", &description,
-                    "got correct description"
-                )
-            }
-            _ => assert!(false, "failed to parse an event line"),
-        };
-    }
-
-    #[test]
-    fn test_note() {
-        match parse_line("2019 12 1 16 3 30<NOTE>:a note with no tags", 0) {
-            Item::Note(
-                Note {
-                    time,
-                    tags,
-                    description,
-                },
-                _,
-            ) => {
-                assert_eq!(2019, time.year());
-                assert_eq!(12, time.month());
-                assert_eq!(1, time.day());
-                assert_eq!(16, time.hour());
-                assert_eq!(3, time.minute());
-                assert_eq!(30, time.second());
-                assert!(tags.is_empty(), "there are no tags");
-                assert_eq!(
-                    "a note with no tags", &description,
-                    "got correct description"
-                )
-            }
-            _ => assert!(false, "failed to parse a NOTE line"),
-        };
-        match parse_line("2019 12 1 16 3 30<NOTE>foo bar:a short note", 0) {
-            Item::Note(
-                Note {
-                    time,
-                    tags,
-                    description,
-                },
-                _,
-            ) => {
-                assert_eq!(2019, time.year());
-                assert_eq!(12, time.month());
-                assert_eq!(1, time.day());
-                assert_eq!(16, time.hour());
-                assert_eq!(3, time.minute());
-                assert_eq!(30, time.second());
-                assert_eq!(tags.len(), 2, "there are two tags");
-                for t in vec!["foo", "bar"] {
-                    assert!(tags.contains(&t.to_owned()));
-                }
-                assert_eq!("a short note", &description, "got correct description")
-            }
-            _ => assert!(false, "failed to parse a NOTE line"),
-        };
-        match parse_line(
-            r"2019 12 1 16 3 30<NOTE>f\:oo b\<ar b\ az pl\\ugh:a short note",
-            0,
-        ) {
-            Item::Note(
-                Note {
-                    time,
-                    tags,
-                    description,
-                },
-                _,
-            ) => {
-                assert_eq!(2019, time.year());
-                assert_eq!(12, time.month());
-                assert_eq!(1, time.day());
-                assert_eq!(16, time.hour());
-                assert_eq!(3, time.minute());
-                assert_eq!(30, time.second());
-                assert_eq!(tags.len(), 4, "there are two tags");
-                for t in vec!["f:oo", "b<ar", "b az", r"pl\ugh"] {
-                    assert!(tags.contains(&t.to_owned()), "escaping worked");
-                }
-                assert_eq!("a short note", &description, "got correct description")
-            }
-            _ => assert!(false, "failed to parse a NOTE line"),
-        };
-        match parse_line("2019 12 1 16 3 30<NOTE>foo bar bar:a short note", 0) {
-            Item::Note(
-                Note {
-                    time,
-                    tags,
-                    description,
-                },
-                _,
-            ) => {
-                assert_eq!(2019, time.year());
-                assert_eq!(12, time.month());
-                assert_eq!(1, time.day());
-                assert_eq!(16, time.hour());
-                assert_eq!(3, time.minute());
-                assert_eq!(30, time.second());
-                assert_eq!(tags.len(), 2, "there are two tags");
-                for t in vec!["foo", "bar"] {
-                    assert!(tags.contains(&t.to_owned()));
-                }
-                assert_eq!("a short note", &description, "got correct description")
-            }
-            _ => assert!(false, "failed to parse a NOTE line"),
-        };
-        match parse_line("2019 12 1 16 3 30<NOTE> foo  bar :a short note", 0) {
-            Item::Note(
-                Note {
-                    time,
-                    tags,
-                    description,
-                },
-                _,
-            ) => {
-                assert_eq!(2019, time.year());
-                assert_eq!(12, time.month());
-                assert_eq!(1, time.day());
-                assert_eq!(16, time.hour());
-                assert_eq!(3, time.minute());
-                assert_eq!(30, time.second());
-                assert_eq!(tags.len(), 2, "there are two tags");
-                for t in vec!["foo", "bar"] {
-                    assert!(tags.contains(&t.to_owned()));
-                }
-                assert_eq!("a short note", &description, "got correct description")
-            }
-            _ => assert!(false, "failed to parse a NOTE line"),
-        };
-        //regression
-        match parse_line("2019 12 22  9 59 34<NOTE>foo play tedium work:baz tedium baz tedium foo plugh bar foo bar play plugh foo baz play baz tedium work work play play bar", 0) {
-            Item::Note(
-                Note {
-                    time,
-                    tags,
-                    description,
-                },
-                _,
-            ) => {
-                assert_eq!(2019, time.year());
-                assert_eq!(12, time.month());
-                assert_eq!(22, time.day());
-                assert_eq!(9, time.hour());
-                assert_eq!(59, time.minute());
-                assert_eq!(34, time.second());
-                assert_eq!(tags.len(), 4, "there are three tags");
-                for t in vec!["foo", "play", "tedium", "work"] {
-                    assert!(tags.contains(&t.to_owned()));
-                }
-                assert_eq!("baz tedium baz tedium foo plugh bar foo bar play plugh foo baz play baz tedium work work play play bar", &description, "got correct description")
-            }
-            _ => assert!(false, "failed to parse a NOTE line"),
-        };
-        //regression
-        match parse_line(
-            "2019 12 22 12  8  0<NOTE>bar:tedium plugh baz play tedium baz play work",
-            0,
-        ) {
-            Item::Note(
-                Note {
-                    time,
-                    tags,
-                    description,
-                },
-                _,
-            ) => {
-                assert_eq!(2019, time.year());
-                assert_eq!(12, time.month());
-                assert_eq!(22, time.day());
-                assert_eq!(12, time.hour());
-                assert_eq!(8, time.minute());
-                assert_eq!(0, time.second());
-                assert_eq!(tags.len(), 1, "there is one tag");
-                for t in vec!["bar"] {
-                    assert!(tags.contains(&t.to_owned()));
-                }
-                assert_eq!(
-                    "tedium plugh baz play tedium baz play work", &description,
-                    "got correct description"
-                )
-            }
-            _ => assert!(false, "failed to parse a NOTE line"),
-        };
-    }
-
-    #[test]
-    fn test_done() {
-        match parse_line("2019 12 1 16 3 30:DONE", 0) {
-            Item::Done(Done(time), _) => {
-                assert_eq!(2019, time.year());
-                assert_eq!(12, time.month());
-                assert_eq!(1, time.day());
-                assert_eq!(16, time.hour());
-                assert_eq!(3, time.minute());
-                assert_eq!(30, time.second());
-            }
-            _ => assert!(false, "failed to parse a DONE line"),
-        };
-        match parse_line(" 2019  12   1  16  3  30 :DONE", 0) {
-            Item::Done(Done(time), _) => {
-                assert_eq!(2019, time.year(), "space doesn't matter");
-                assert_eq!(12, time.month(), "space doesn't matter");
-                assert_eq!(1, time.day(), "space doesn't matter");
-                assert_eq!(16, time.hour(), "space doesn't matter");
-                assert_eq!(3, time.minute(), "space doesn't matter");
-                assert_eq!(30, time.second(), "space doesn't matter");
-            }
-            _ => assert!(false, "failed to parse a DONE line"),
-        };
-    }
-
-    #[test]
-    fn test_tag_whitespace_handling() {
-        let e = Event::coin(
-            String::from("foo"),
-            vec![String::from("foo bar"), String::from("baz   plugh")],
-        );
-        match parse_line(e.to_line().as_str(), 0) {
-            Item::Event(Event { tags, .. }, _) => {
-                assert_eq!(2, tags.len());
-                assert!(tags.contains(&String::from("foo bar")));
-                assert!(tags.contains(&String::from("baz plugh")));
-            }
-            _ => assert!(false, "failed to parse line as an event"),
-        }
-    }
-
-    #[test]
-    fn test_zero_padding() {
-        match parse_line("2019 12 01 16 03 30:DONE", 0) {
-            Item::Done(Done(time), _) => {
-                assert_eq!(1, time.day());
-                assert_eq!(3, time.minute());
-            }
-            _ => assert!(false, "failed to parse a DONE line"),
-        };
-    }
-
-    #[test]
-    fn test_comment() {
-        let success = match parse_line("#foo", 0) {
-            Item::Comment(_) => true,
-            _ => false,
-        };
-        assert!(success, "recognized '#foo' as a comment line");
-        let success = match parse_line("   #foo", 0) {
-            Item::Comment(_) => true,
-            _ => false,
-        };
-        assert!(success, "comments can have leading space");
-    }
-
-    #[test]
-    fn test_error() {
-        let success = match parse_line("foo", 0) {
-            Item::Error(_, _) => true,
-            _ => false,
-        };
-        assert!(success, "recognized 'foo' as a malformed log line");
-    }
-
-    #[test]
-    fn test_blank() {
-        let success = match parse_line("", 0) {
-            Item::Blank(_) => true,
-            _ => false,
-        };
-        assert!(success, "recognized an empty line as a blank");
-        let success = match parse_line("     ", 0) {
-            Item::Blank(_) => true,
-            _ => false,
-        };
-        assert!(success, "recognized a whitespace line as a blank");
-    }
-
-    #[test]
-    fn stack_overflow_regression() {
-        let (items, path) = random_log(23, vec![Need::E, Need::E], "stack_overflow_regression");
-        let events = closed_events(items);
-        assert!(events.len() > 1, "found more than one event");
-        let (conf_path, conf) = test_configuration("stack_overflow_regression");
-        let mut log_reader =
-            LogController::new(Some(PathBuf::from_str(&path).unwrap()), &conf).unwrap();
-        let e = events.first().unwrap();
-        let false_start = e.start - Duration::days(1);
-        let found_events = log_reader.events_in_range(&false_start, e.end.as_ref().unwrap());
-        assert_eq!(1, found_events.len(), "found one event");
-        assert_eq!(e.start, found_events[0].start, "same start");
-        assert_eq!(e.end, found_events[0].end, "same end");
-        assert_eq!(e.tags, found_events[0].tags, "same tags");
-        assert_eq!(
-            e.description, found_events[0].description,
-            "same description"
-        );
-        cleanup(&[&path, &conf_path]);
     }
 }
 
@@ -1515,26 +659,26 @@ impl Item {
         match self {
             Item::Event(e, _) => {
                 if time < &e.start {
-                    e.start.clone()
+                    e.start
                 } else {
-                    time.clone()
+                    *time
                 }
             }
             Item::Note(n, _) => {
                 if time < &n.time {
-                    n.time.clone()
+                    n.time
                 } else {
-                    time.clone()
+                    *time
                 }
             }
             Item::Done(d, _) => {
                 if time < &d.0 {
-                    d.0.clone()
+                    d.0
                 } else {
-                    time.clone()
+                    *time
                 }
             }
-            _ => time.clone(),
+            _ => *time,
         }
     }
     pub fn time(&self) -> Option<(&NaiveDateTime, usize)> {
@@ -1546,20 +690,20 @@ impl Item {
         }
     }
     pub fn has_time(&self) -> bool {
-        match self {
-            Item::Event(_, _) | Item::Note(_, _) | Item::Done(_, _) => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            Item::Event(_, _) | Item::Note(_, _) | Item::Done(_, _)
+        )
     }
     // the line offset of the item
     pub fn offset(&self) -> usize {
         match self {
-            Item::Event(_, i) => *i,
-            Item::Note(_, i) => *i,
-            Item::Done(_, i) => *i,
-            Item::Blank(i) => *i,
-            Item::Comment(i) => *i,
-            Item::Error(_, i) => *i,
+            Item::Event(_, i)
+            | Item::Note(_, i)
+            | Item::Done(_, i)
+            | Item::Blank(i)
+            | Item::Comment(i)
+            | Item::Error(_, i) => *i,
         }
     }
 }
@@ -1577,10 +721,8 @@ impl PartialOrd for Item {
 }
 
 pub fn parse_timestamp(timestamp: &str) -> Result<NaiveDateTime, String> {
-    lazy_static! {
-        static ref RE: Regex = Regex::new(r"\d+").unwrap();
-    }
-    let numbers: Vec<_> = RE.find_iter(timestamp).map(|m| m.as_str()).collect();
+    static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d+").unwrap());
+    let numbers: Vec<&str> = RE.find_iter(timestamp).map(|m| m.as_str()).collect();
     // at this point the log lines grammar ensures all the parsing will be fine
     let year = numbers[0].parse::<i32>().unwrap();
     let month = numbers[1].parse::<u32>().unwrap();
@@ -1610,7 +752,7 @@ pub fn parse_timestamp(timestamp: &str) -> Result<NaiveDateTime, String> {
         ));
     }
     match NaiveDate::from_ymd_opt(year, month, day) {
-        Some(date) => Ok(date.and_hms(hour, minute, second)),
+        Some(date) => Ok(date.and_hms_opt(hour, minute, second).unwrap()),
         _ => Err(String::from("impossible date")),
     }
 }
@@ -1644,7 +786,7 @@ pub fn parse_tags(tags: &str) -> Vec<String> {
             if escaped {
                 current.push(c);
             } else {
-                if current.len() > 0 && !parsed.contains(&current) {
+                if !current.is_empty() && !parsed.contains(&current) {
                     parsed.push(current.clone());
                 }
                 current.clear();
@@ -1655,15 +797,15 @@ pub fn parse_tags(tags: &str) -> Vec<String> {
             escaped = false;
         }
     }
-    if current.len() > 0 && !parsed.contains(&current) {
+    if !current.is_empty() && !parsed.contains(&current) {
         parsed.push(current);
     }
     parsed
 }
 
 // convert tags back into a part of a log string
-pub fn tags(tags: &Vec<String>) -> String {
-    let mut v = tags.clone();
+pub fn tags(tags: &[String]) -> String {
+    let mut v = tags.to_vec();
     v.sort_unstable();
     v.dedup(); // there may still be duplicates after we normalize whitespace below; oh, well
     let mut s = String::new();
@@ -1713,23 +855,14 @@ impl Event {
             start_overlap: false,
             end: None,
             end_overlap: false,
-            description: description,
-            tags: tags,
+            description,
+            tags,
             vacation: false,
             vacation_type: None,
         }
     }
     fn bounded_time(self, end: Option<NaiveDateTime>) -> Self {
-        Event {
-            start: self.start,
-            start_overlap: self.start_overlap,
-            end: end,
-            end_overlap: self.end_overlap,
-            description: self.description,
-            tags: self.tags,
-            vacation: self.vacation,
-            vacation_type: self.vacation_type,
-        }
+        Event { end, ..self }
     }
     pub fn ongoing(&self) -> bool {
         self.end.is_none()
@@ -1738,7 +871,7 @@ impl Event {
     // the second parameter is necessary for ongoing tasks
     pub fn duration(&self, now: &NaiveDateTime) -> f32 {
         let end = self.end.as_ref().unwrap_or(now);
-        (end.timestamp() - self.start.timestamp()) as f32
+        (end.and_utc().timestamp() - self.start.and_utc().timestamp()) as f32
     }
     // split an event into two at a time boundary
     fn split(self, time: NaiveDateTime) -> (Self, Self) {
@@ -1747,7 +880,7 @@ impl Event {
         let mut start = self;
         let mut end = start.clone();
         start.end_overlap = true;
-        start.end = Some(time.clone());
+        start.end = Some(time);
         end.start = time;
         end.end_overlap = true;
         (start, end)
@@ -1757,7 +890,7 @@ impl Event {
         let mut ret = vec![];
         let mut end_date = end_date;
         let now = Local::now().naive_local(); // we assume there are no future events in the log
-        if &now < &end_date {
+        if &now < end_date {
             end_date = &now;
         }
         for mut e in events {
@@ -1771,7 +904,8 @@ impl Event {
                             ret.push(e);
                             break;
                         }
-                        let split_date = e.start.date().and_hms(0, 0, 0) + Duration::days(1);
+                        let split_date =
+                            e.start.date().and_hms_opt(0, 0, 0).unwrap() + Duration::days(1);
                         let (e1, e2) = e.split(split_date);
                         e = e2;
                         ret.push(e1);
@@ -1781,7 +915,8 @@ impl Event {
                             ret.push(e);
                             break;
                         } else {
-                            let split_date = e.start.date().and_hms(0, 0, 0) + Duration::days(1);
+                            let split_date =
+                                e.start.date().and_hms_opt(0, 0, 0).unwrap() + Duration::days(1);
                             let (e1, e2) = e.split(split_date);
                             e = e2;
                             ret.push(e1);
@@ -1856,9 +991,12 @@ impl Event {
             end,
             duration_string(self.duration(now), conf),
             if let Some(t) = &self.vacation_type {
-                format!("\"vacation\":\"{}\",", if t == "" { "ordinary" } else { t })
+                format!(
+                    "\"vacation\":\"{}\",",
+                    if t.is_empty() { "ordinary" } else { t }
+                )
             } else {
-                "".to_owned()
+                String::new()
             },
             serde_json::to_string(&self.tags).unwrap(),
             serde_json::to_string(&self.description).unwrap()
@@ -1888,8 +1026,8 @@ impl Note {
         tags.dedup();
         Note {
             time: Local::now().naive_local(),
-            description: description,
-            tags: tags,
+            description,
+            tags,
         }
     }
     pub fn to_json(&self, _now: &NaiveDateTime, _conf: &Configuration) -> String {
@@ -1986,23 +1124,33 @@ impl<'a> Filter<'a> {
             empty: false,
         }
     }
-    pub fn new(matches: &'a ArgMatches) -> Filter<'a> {
-        let all_tags = matches
-            .values_of("tag")
-            .and_then(|values| Some(values.collect()));
-        let no_tags = matches
-            .values_of("tag-none")
-            .and_then(|values| Some(values.collect()));
-        let some_tags = matches
-            .values_of("tag-some")
-            .and_then(|values| Some(values.collect()));
-        let some_patterns = matches
-            .values_of("rx")
-            .and_then(|values| Some(RegexSet::new(values).unwrap()));
-        let no_patterns = matches
-            .values_of("rx-not")
-            .and_then(|values| Some(RegexSet::new(values).unwrap()));
-        let empty = matches.is_present("no-tags");
+    pub fn new(args: &'a FilterArgs) -> Filter<'a> {
+        let all_tags = if args.tag.is_empty() {
+            None
+        } else {
+            Some(args.tag.iter().map(String::as_str).collect())
+        };
+        let no_tags = if args.tag_none.is_empty() {
+            None
+        } else {
+            Some(args.tag_none.iter().map(String::as_str).collect())
+        };
+        let some_tags = if args.tag_some.is_empty() {
+            None
+        } else {
+            Some(args.tag_some.iter().map(String::as_str).collect())
+        };
+        let some_patterns = if args.rx.is_empty() {
+            None
+        } else {
+            Some(RegexSet::new(&args.rx).unwrap())
+        };
+        let no_patterns = if args.rx_not.is_empty() {
+            None
+        } else {
+            Some(RegexSet::new(&args.rx_not).unwrap())
+        };
+        let empty = args.no_tags;
         Filter {
             all_tags,
             no_tags,
@@ -2076,5 +1224,954 @@ impl<'a> Filter<'a> {
             }
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Duration;
+    use rand::seq::SliceRandom;
+    use rand::{rng, Rng};
+    use std::fs::File;
+    use std::io::LineWriter;
+    use std::ops::AddAssign;
+
+    enum Need {
+        E,
+        N,
+        B,
+        C,
+        Error,
+    }
+
+    fn random_tag() -> String {
+        let choices = ["foo", "bar", "baz", "plugh", "work", "play", "tedium"];
+        choices[rng().random_range(0..choices.len())].to_owned()
+    }
+
+    fn random_words(min: usize, max: usize) -> Vec<String> {
+        (0..rng().random_range(min..max + 1))
+            .map(|_| random_tag())
+            .collect()
+    }
+
+    fn random_tags() -> Vec<String> {
+        let mut tags = random_words(0, 5);
+        tags.sort_unstable();
+        tags.dedup();
+        tags
+    }
+
+    fn random_text() -> String {
+        let mut words = random_words(5, 15);
+        let mut word = words.remove(0);
+        for w in words {
+            word += " ";
+            word.push_str(&w);
+        }
+        word
+    }
+
+    fn random_line(
+        time: &mut NaiveDateTime,
+        open_event: bool,
+        offset: usize,
+        need: Option<Need>,
+    ) -> Item {
+        let n = rng().random_range(0..100);
+        let need = if let Some(need) = need {
+            need
+        } else if n < 4 {
+            Need::B
+        } else if n < 10 {
+            Need::C
+        } else if n < 11 {
+            Need::Error
+        } else if n < 20 {
+            Need::N
+        } else {
+            Need::E
+        };
+        match need {
+            Need::B => Item::Blank(offset),
+            Need::C => {
+                let mut comment = String::from("# ");
+                comment.push_str(&random_text());
+                Item::Comment(offset)
+            }
+            Need::Error => Item::Error(random_text(), offset),
+            Need::N => {
+                time.add_assign(Duration::seconds(rng().random_range(1..1000)));
+                Item::Note(
+                    Note {
+                        time: *time,
+                        description: random_text(),
+                        tags: random_tags(),
+                    },
+                    offset,
+                )
+            }
+            Need::E => {
+                time.add_assign(Duration::seconds(rng().random_range(1..1000)));
+                if open_event && n < 30 {
+                    Item::Done(Done(*time), offset)
+                } else {
+                    Item::Event(
+                        Event {
+                            start: *time,
+                            start_overlap: false,
+                            end: None,
+                            end_overlap: false,
+                            tags: random_tags(),
+                            description: random_text(),
+                            vacation: false,
+                            vacation_type: None,
+                        },
+                        offset,
+                    )
+                }
+            }
+        }
+    }
+
+    // the need is a set of things you need at least one of in the log
+    fn random_log(length: usize, need: Vec<Need>, disambiguator: &str) -> (Vec<Item>, String) {
+        let mut initial_time = NaiveDate::from_ymd_opt(2019, 12, 22)
+            .unwrap()
+            .and_hms_opt(9, 39, 30)
+            .unwrap();
+        let mut items: Vec<Item> = Vec::with_capacity(length);
+        let mut open_event = false;
+        // tests are run in parallel, so we need to prevent collisions, but it's nice to
+        // have the files handy to look at in case of failure
+        // this technique seems to suffice
+        let path = format!(
+            "{}-{}-{}.log",
+            disambiguator,
+            length,
+            Local::now().naive_local().and_utc().timestamp_millis()
+        );
+        let file = File::create(path.clone()).unwrap();
+        let mut file = LineWriter::new(file);
+        let mut need: Vec<(usize, Need)> = if need.is_empty() {
+            vec![]
+        } else {
+            // randomly assign needs to lines
+            let mut indices: Vec<usize> = (0..length).collect();
+            indices.shuffle(&mut rng());
+            let mut need = need;
+            need.shuffle(&mut rng());
+            let mut need = need
+                .into_iter()
+                .map(|n| (indices.remove(0), n))
+                .collect::<Vec<_>>();
+            need.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
+            need
+        };
+        for offset in 0..length {
+            let t = if let Some((i, _)) = need.first() {
+                if i == &offset {
+                    let t = need.remove(0).1;
+                    Some(t)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            let item = random_line(&mut initial_time, open_event, offset, t);
+            open_event = match item {
+                Item::Done(_, _) => false,
+                Item::Event(_, _) => true,
+                _ => open_event,
+            };
+            let line = match &item {
+                Item::Event(e, _) => e.to_line(),
+                Item::Note(n, _) => n.to_line(),
+                Item::Done(d, _) => d.to_line(),
+                Item::Blank(_) => String::new(),
+                Item::Comment(_) => {
+                    let mut s = String::from("# ");
+                    s.push_str(&random_text());
+                    s
+                }
+                Item::Error(s, _) => s.clone(),
+            };
+            file.write_all(line.as_ref()).unwrap();
+            file.write_all("\n".as_ref()).unwrap();
+            if item.has_time() {
+                items.push(item);
+            }
+        }
+        (items, path)
+    }
+
+    fn closed_events(mut items: Vec<Item>) -> Vec<Event> {
+        items.reverse();
+        let mut ret = Vec::with_capacity(items.len());
+        let mut last_time: Option<NaiveDateTime> = None;
+        for i in items.iter() {
+            match i {
+                Item::Done(Done(t), _) => last_time = Some(*t),
+                Item::Event(e, _) => {
+                    let mut e = e.clone();
+                    if last_time.is_some() {
+                        e.end = last_time;
+                    }
+                    last_time = Some(e.start);
+                    ret.push(e);
+                }
+                _ => (),
+            }
+        }
+        ret.reverse();
+        ret
+    }
+
+    fn notes(items: Vec<Item>) -> Vec<Note> {
+        let mut ret = Vec::with_capacity(items.len());
+        for i in items.iter() {
+            if let Item::Note(n, _) = i {
+                ret.push(n.clone());
+            }
+        }
+        ret
+    }
+
+    fn test_configuration(path: &str) -> (String, Configuration) {
+        let conf_path = format!("{}_conf", path);
+        File::create(PathBuf::from(&conf_path))
+            .unwrap_or_else(|_| panic!("could not create file {}", conf_path));
+        let conf = Configuration::read(Some(PathBuf::from(&conf_path)), None);
+        (conf_path, conf)
+    }
+
+    fn cleanup(paths: &[&str]) {
+        for p in paths {
+            let pb = PathBuf::from(p);
+            if pb.as_path().exists() {
+                std::fs::remove_file(p).unwrap_or_else(|_| panic!("failed to remove {}", p));
+            }
+        }
+    }
+
+    #[test]
+    fn test_notes_in_range() {
+        let (items, path) = random_log(100, vec![Need::N, Need::N], "test_notes_in_range");
+        let notes = notes(items);
+        assert!(notes.len() > 1, "found more than one note");
+        let (conf_path, conf) = test_configuration("test_notes_in_range");
+        let mut log_reader = LogController::new(Some(PathBuf::from(&path)), &conf).unwrap();
+        for i in 0..notes.len() - 1 {
+            for j in i..notes.len() {
+                let found_notes = log_reader.notes_in_range(&notes[i].time, &notes[j].time);
+                assert!(
+                    j - i == found_notes.len(),
+                    "found as many events as expected"
+                );
+                for (offset, found) in found_notes.iter().enumerate() {
+                    let k = i + offset;
+                    assert_eq!(notes[k].time, found.time, "same time");
+                    assert_eq!(notes[k].tags, found.tags, "same tags");
+                    assert_eq!(notes[k].description, found.description, "same description");
+                }
+            }
+        }
+        cleanup(&[&path, &conf_path]);
+    }
+
+    #[test]
+    fn test_events_in_range() {
+        let (items, path) = random_log(20, vec![Need::E, Need::E], "test_events_in_range");
+        let events = closed_events(items);
+        assert!(events.len() > 1, "found more than one event");
+        let (conf_path, conf) = test_configuration("test_events_in_range");
+        let mut log_reader = LogController::new(Some(PathBuf::from(&path)), &conf).unwrap();
+        for i in 0..events.len() - 1 {
+            for j in i..events.len() {
+                let found_events = log_reader.events_in_range(&events[i].start, &events[j].start);
+                assert!(
+                    j - i <= found_events.len(),
+                    "found at least as many events as expected"
+                );
+                for (offset, found) in found_events.iter().enumerate() {
+                    let k = i + offset;
+                    assert_eq!(events[k].start, found.start, "same start");
+                    assert_eq!(events[k].end, found.end, "same end");
+                    assert_eq!(events[k].tags, found.tags, "same tags");
+                    assert_eq!(events[k].description, found.description, "same description");
+                }
+            }
+        }
+        cleanup(&[&path, &conf_path]);
+    }
+
+    #[test]
+    fn test_notes_from_end() {
+        let (items, path) = random_log(100, vec![Need::N], "test_notes_from_end");
+        let mut notes = notes(items);
+        notes.reverse();
+        let (conf_path, conf) = test_configuration("test_notes_from_end");
+        let mut log_reader = LogController::new(Some(PathBuf::from(&path)), &conf).unwrap();
+        let found_notes = log_reader.notes_from_the_end().collect::<Vec<_>>();
+        assert_eq!(
+            notes.len(),
+            found_notes.len(),
+            "found the right number of notes"
+        );
+        for (i, e) in notes.iter().enumerate() {
+            assert_eq!(e.time, found_notes[i].time, "they occur at the same time");
+            assert_eq!(e.tags, found_notes[i].tags, "they have the same tags");
+            assert_eq!(
+                e.description, found_notes[i].description,
+                "they have the same text"
+            );
+        }
+        cleanup(&[&path, &conf_path]);
+    }
+
+    #[test]
+    fn test_notes_from_beginning() {
+        let (items, path) = random_log(103, vec![Need::N], "test_notes_from_beginning");
+        let notes = notes(items);
+        let (conf_path, conf) = test_configuration("test_notes_from_beginning");
+        let log_reader = LogController::new(Some(PathBuf::from(&path)), &conf).unwrap();
+        let found_notes = log_reader.notes_from_the_beginning().collect::<Vec<_>>();
+        assert_eq!(
+            notes.len(),
+            found_notes.len(),
+            "found the right number of notes"
+        );
+        for (i, n) in notes.iter().enumerate() {
+            assert_eq!(n.time, found_notes[i].time, "they occur at the same time");
+            assert_eq!(n.tags, found_notes[i].tags, "they have the same tags");
+            assert_eq!(
+                n.description, found_notes[i].description,
+                "they have the same text"
+            );
+        }
+        cleanup(&[&path, &conf_path]);
+    }
+
+    #[test]
+    fn test_events_from_end() {
+        let (items, path) = random_log(107, vec![Need::E], "test_events_from_end");
+        let mut events = closed_events(items);
+        events.reverse();
+        let (conf_path, conf) = test_configuration("test_events_from_end");
+        let mut log_reader = LogController::new(Some(PathBuf::from(&path)), &conf).unwrap();
+        let found_events = log_reader.events_from_the_end().collect::<Vec<_>>();
+        assert_eq!(
+            events.len(),
+            found_events.len(),
+            "found the right number of events"
+        );
+        for (i, e) in events.iter().enumerate() {
+            assert_eq!(
+                e.start, found_events[i].start,
+                "they start at the same time"
+            );
+            assert_eq!(e.end, found_events[i].end, "they end at the same time");
+            assert_eq!(e.tags, found_events[i].tags, "they have the same tags");
+            assert_eq!(
+                e.description, found_events[i].description,
+                "they have the same description"
+            );
+        }
+        cleanup(&[&path, &conf_path]);
+    }
+
+    #[test]
+    fn test_events_from_beginning() {
+        let (items, path) = random_log(100, vec![Need::E], "test_events_from_beginning");
+        let events = closed_events(items);
+        let (conf_path, conf) = test_configuration("test_events_from_beginning");
+        let log_reader = LogController::new(Some(PathBuf::from(&path)), &conf).unwrap();
+        let found_events = log_reader.events_from_the_beginning().collect::<Vec<_>>();
+        assert_eq!(
+            events.len(),
+            found_events.len(),
+            "found the right number of events"
+        );
+        for (i, e) in events.iter().enumerate() {
+            assert_eq!(
+                e.start, found_events[i].start,
+                "they start at the same time"
+            );
+            assert_eq!(e.end, found_events[i].end, "they end at the same time");
+            assert_eq!(e.tags, found_events[i].tags, "they have the same tags");
+            assert_eq!(
+                e.description, found_events[i].description,
+                "they have the same description"
+            );
+        }
+        cleanup(&[&path, &conf_path]);
+    }
+
+    fn test_log(length: usize, disambiguator: &str) {
+        let (items, path) = random_log(length, vec![], disambiguator);
+        if items.is_empty() {
+            println!("empty file; skipping...");
+        } else {
+            let (conf_path, conf) = test_configuration(&path);
+            let mut log_reader = LogController::new(Some(PathBuf::from(&path)), &conf).unwrap();
+            let mut last_timed_item: Option<Item> = None;
+            for item in items {
+                let (time, offset) = item.time().unwrap();
+                let found_item = log_reader.find_line(time);
+                if let Some(found_item) = found_item {
+                    assert_eq!(offset, found_item.offset());
+                    if let Some(lti) = last_timed_item.clone() {
+                        let (t1, _) = lti.time().unwrap();
+                        let (t2, _) = found_item.time().unwrap();
+                        let d = *t2 - *t1;
+                        if d.num_seconds() > 1 {
+                            let intermediate_time = t1
+                                .checked_add_signed(Duration::seconds(d.num_seconds() / 2))
+                                .unwrap();
+                            let should_be_found = log_reader.find_line(&intermediate_time);
+                            if let Some(should_be_found) = should_be_found {
+                                assert_eq!(last_timed_item.unwrap(), should_be_found);
+                            } else {
+                                panic!("failed to revert to found time when looking for missing intermediate time {}", intermediate_time);
+                            }
+                        }
+                    }
+                    last_timed_item = Some(found_item);
+                } else {
+                    panic!("could not find item at offset {}", offset);
+                }
+                cleanup(&[&conf_path]);
+            }
+        }
+        cleanup(&[&path]);
+    }
+
+    #[test]
+    fn test_empty_file() {
+        test_log(0, "test_empty_file");
+    }
+
+    #[test]
+    fn test_100_tiny_files() {
+        for i in 0..100 {
+            test_log(5, &format!("test_100_tiny_files_{}", i));
+        }
+    }
+
+    #[test]
+    fn test_10_small_files() {
+        for i in 0..10 {
+            test_log(100, &format!("test_10_small_files_{}", i));
+        }
+    }
+
+    #[test]
+    fn test_large_file() {
+        test_log(10000, "test_large_file");
+    }
+
+    #[test]
+    fn test_event() {
+        match parse_line("2019 12 1 16 3 30::an event with no tags", 0) {
+            Item::Event(
+                Event {
+                    start,
+                    tags,
+                    description,
+                    ..
+                },
+                _,
+            ) => {
+                assert_eq!(2019, start.year());
+                assert_eq!(12, start.month());
+                assert_eq!(1, start.day());
+                assert_eq!(16, start.hour());
+                assert_eq!(3, start.minute());
+                assert_eq!(30, start.second());
+                assert!(tags.is_empty(), "there are no tags");
+                assert_eq!(
+                    "an event with no tags", &description,
+                    "got correct description"
+                )
+            }
+            _ => panic!("failed to parse an event line"),
+        };
+        match parse_line("2019 12 1 16 3 30:foo bar:an event with some tags", 0) {
+            Item::Event(
+                Event {
+                    start,
+                    tags,
+                    description,
+                    ..
+                },
+                _,
+            ) => {
+                assert_eq!(2019, start.year());
+                assert_eq!(12, start.month());
+                assert_eq!(1, start.day());
+                assert_eq!(16, start.hour());
+                assert_eq!(3, start.minute());
+                assert_eq!(30, start.second());
+                assert_eq!(2, tags.len(), "there are some tags");
+                for t in ["foo", "bar"] {
+                    assert!(tags.contains(&t.to_owned()));
+                }
+                assert_eq!(
+                    "an event with some tags", &description,
+                    "got correct description"
+                )
+            }
+            _ => panic!("failed to parse an event line"),
+        };
+        // can parse tags with spaces
+        match parse_line("2019 12 1 16 3 30:foo\\ bar:an event with some tags", 0) {
+            Item::Event(
+                Event {
+                    start,
+                    tags,
+                    description,
+                    ..
+                },
+                _,
+            ) => {
+                assert_eq!(2019, start.year());
+                assert_eq!(12, start.month());
+                assert_eq!(1, start.day());
+                assert_eq!(16, start.hour());
+                assert_eq!(3, start.minute());
+                assert_eq!(30, start.second());
+                assert_eq!(1, tags.len(), "there are some tags");
+                {
+                    let t = "foo bar";
+                    assert!(tags.contains(&t.to_owned()));
+                }
+                assert_eq!(
+                    "an event with some tags", &description,
+                    "got correct description"
+                )
+            }
+            _ => panic!("failed to parse an event line"),
+        };
+        //regression?
+        match parse_line("2019 12 22 12 49 24:foo:plugh baz baz foo play play work baz tedium foo tedium foo work bar", 0) {
+            Item::Event(
+                Event {
+                    start,
+                    tags,
+                    description,
+                    ..
+                },
+                _,
+            ) => {
+                assert_eq!(2019, start.year());
+                assert_eq!(12, start.month());
+                assert_eq!(22, start.day());
+                assert_eq!(12, start.hour());
+                assert_eq!(49, start.minute());
+                assert_eq!(24, start.second());
+                assert_eq!(1, tags.len(), "there are some tags");
+                {
+                    let t = "foo";
+                    assert!(tags.contains(&t.to_owned()));
+                }
+                assert_eq!(
+                    "plugh baz baz foo play play work baz tedium foo tedium foo work bar", &description,
+                    "got correct description"
+                )
+            }
+            _ => panic!("failed to parse an event line"),
+        };
+    }
+
+    #[test]
+    fn test_note() {
+        match parse_line("2019 12 1 16 3 30<NOTE>:a note with no tags", 0) {
+            Item::Note(
+                Note {
+                    time,
+                    tags,
+                    description,
+                },
+                _,
+            ) => {
+                assert_eq!(2019, time.year());
+                assert_eq!(12, time.month());
+                assert_eq!(1, time.day());
+                assert_eq!(16, time.hour());
+                assert_eq!(3, time.minute());
+                assert_eq!(30, time.second());
+                assert!(tags.is_empty(), "there are no tags");
+                assert_eq!(
+                    "a note with no tags", &description,
+                    "got correct description"
+                )
+            }
+            _ => panic!("failed to parse a NOTE line"),
+        };
+        match parse_line("2019 12 1 16 3 30<NOTE>foo bar:a short note", 0) {
+            Item::Note(
+                Note {
+                    time,
+                    tags,
+                    description,
+                },
+                _,
+            ) => {
+                assert_eq!(2019, time.year());
+                assert_eq!(12, time.month());
+                assert_eq!(1, time.day());
+                assert_eq!(16, time.hour());
+                assert_eq!(3, time.minute());
+                assert_eq!(30, time.second());
+                assert_eq!(tags.len(), 2, "there are two tags");
+                for t in ["foo", "bar"] {
+                    assert!(tags.contains(&t.to_owned()));
+                }
+                assert_eq!("a short note", &description, "got correct description")
+            }
+            _ => panic!("failed to parse a NOTE line"),
+        };
+        match parse_line(
+            r"2019 12 1 16 3 30<NOTE>f\:oo b\<ar b\ az pl\\ugh:a short note",
+            0,
+        ) {
+            Item::Note(
+                Note {
+                    time,
+                    tags,
+                    description,
+                },
+                _,
+            ) => {
+                assert_eq!(2019, time.year());
+                assert_eq!(12, time.month());
+                assert_eq!(1, time.day());
+                assert_eq!(16, time.hour());
+                assert_eq!(3, time.minute());
+                assert_eq!(30, time.second());
+                assert_eq!(tags.len(), 4, "there are four tags");
+                for t in ["f:oo", "b<ar", "b az", r"pl\ugh"] {
+                    assert!(tags.contains(&t.to_owned()), "escaping worked");
+                }
+                assert_eq!("a short note", &description, "got correct description")
+            }
+            _ => panic!("failed to parse a NOTE line"),
+        };
+        match parse_line("2019 12 1 16 3 30<NOTE>foo bar bar:a short note", 0) {
+            Item::Note(
+                Note {
+                    time,
+                    tags,
+                    description,
+                },
+                _,
+            ) => {
+                assert_eq!(2019, time.year());
+                assert_eq!(12, time.month());
+                assert_eq!(1, time.day());
+                assert_eq!(16, time.hour());
+                assert_eq!(3, time.minute());
+                assert_eq!(30, time.second());
+                assert_eq!(tags.len(), 2, "there are two tags");
+                for t in ["foo", "bar"] {
+                    assert!(tags.contains(&t.to_owned()));
+                }
+                assert_eq!("a short note", &description, "got correct description")
+            }
+            _ => panic!("failed to parse a NOTE line"),
+        };
+        match parse_line("2019 12 1 16 3 30<NOTE> foo  bar :a short note", 0) {
+            Item::Note(
+                Note {
+                    time,
+                    tags,
+                    description,
+                },
+                _,
+            ) => {
+                assert_eq!(2019, time.year());
+                assert_eq!(12, time.month());
+                assert_eq!(1, time.day());
+                assert_eq!(16, time.hour());
+                assert_eq!(3, time.minute());
+                assert_eq!(30, time.second());
+                assert_eq!(tags.len(), 2, "there are two tags");
+                for t in ["foo", "bar"] {
+                    assert!(tags.contains(&t.to_owned()));
+                }
+                assert_eq!("a short note", &description, "got correct description")
+            }
+            _ => panic!("failed to parse a NOTE line"),
+        };
+        //regression
+        match parse_line("2019 12 22  9 59 34<NOTE>foo play tedium work:baz tedium baz tedium foo plugh bar foo bar play plugh foo baz play baz tedium work work play play bar", 0) {
+            Item::Note(
+                Note {
+                    time,
+                    tags,
+                    description,
+                },
+                _,
+            ) => {
+                assert_eq!(2019, time.year());
+                assert_eq!(12, time.month());
+                assert_eq!(22, time.day());
+                assert_eq!(9, time.hour());
+                assert_eq!(59, time.minute());
+                assert_eq!(34, time.second());
+                assert_eq!(tags.len(), 4, "there are four tags");
+                for t in ["foo", "play", "tedium", "work"] {
+                    assert!(tags.contains(&t.to_owned()));
+                }
+                assert_eq!("baz tedium baz tedium foo plugh bar foo bar play plugh foo baz play baz tedium work work play play bar", &description, "got correct description")
+            }
+            _ => panic!("failed to parse a NOTE line"),
+        };
+        //regression
+        match parse_line(
+            "2019 12 22 12  8  0<NOTE>bar:tedium plugh baz play tedium baz play work",
+            0,
+        ) {
+            Item::Note(
+                Note {
+                    time,
+                    tags,
+                    description,
+                },
+                _,
+            ) => {
+                assert_eq!(2019, time.year());
+                assert_eq!(12, time.month());
+                assert_eq!(22, time.day());
+                assert_eq!(12, time.hour());
+                assert_eq!(8, time.minute());
+                assert_eq!(0, time.second());
+                assert_eq!(tags.len(), 1, "there is one tag");
+                {
+                    let t = "bar";
+                    assert!(tags.contains(&t.to_owned()));
+                }
+                assert_eq!(
+                    "tedium plugh baz play tedium baz play work", &description,
+                    "got correct description"
+                )
+            }
+            _ => panic!("failed to parse a NOTE line"),
+        };
+    }
+
+    #[test]
+    fn test_done() {
+        match parse_line("2019 12 1 16 3 30:DONE", 0) {
+            Item::Done(Done(time), _) => {
+                assert_eq!(2019, time.year());
+                assert_eq!(12, time.month());
+                assert_eq!(1, time.day());
+                assert_eq!(16, time.hour());
+                assert_eq!(3, time.minute());
+                assert_eq!(30, time.second());
+            }
+            _ => panic!("failed to parse a DONE line"),
+        };
+        match parse_line(" 2019  12   1  16  3  30 :DONE", 0) {
+            Item::Done(Done(time), _) => {
+                assert_eq!(2019, time.year(), "space doesn't matter");
+                assert_eq!(12, time.month(), "space doesn't matter");
+                assert_eq!(1, time.day(), "space doesn't matter");
+                assert_eq!(16, time.hour(), "space doesn't matter");
+                assert_eq!(3, time.minute(), "space doesn't matter");
+                assert_eq!(30, time.second(), "space doesn't matter");
+            }
+            _ => panic!("failed to parse a DONE line"),
+        };
+    }
+
+    #[test]
+    fn test_tag_whitespace_handling() {
+        let e = Event::coin(
+            String::from("foo"),
+            vec![String::from("foo bar"), String::from("baz   plugh")],
+        );
+        match parse_line(e.to_line().as_str(), 0) {
+            Item::Event(Event { tags, .. }, _) => {
+                assert_eq!(2, tags.len());
+                assert!(tags.contains(&String::from("foo bar")));
+                assert!(tags.contains(&String::from("baz plugh")));
+            }
+            _ => panic!("failed to parse line as an event"),
+        }
+    }
+
+    #[test]
+    fn test_zero_padding() {
+        match parse_line("2019 12 01 16 03 30:DONE", 0) {
+            Item::Done(Done(time), _) => {
+                assert_eq!(1, time.day());
+                assert_eq!(3, time.minute());
+            }
+            _ => panic!("failed to parse a DONE line"),
+        };
+    }
+
+    #[test]
+    fn test_comment() {
+        let success = matches!(parse_line("#foo", 0), Item::Comment(_));
+        assert!(success, "recognized '#foo' as a comment line");
+        let success = matches!(parse_line("   #foo", 0), Item::Comment(_));
+        assert!(success, "comments can have leading space");
+    }
+
+    #[test]
+    fn test_error() {
+        let success = matches!(parse_line("foo", 0), Item::Error(_, _));
+        assert!(success, "recognized 'foo' as a malformed log line");
+    }
+
+    #[test]
+    fn test_blank() {
+        let success = matches!(parse_line("", 0), Item::Blank(_));
+        assert!(success, "recognized an empty line as a blank");
+        let success = matches!(parse_line("     ", 0), Item::Blank(_));
+        assert!(success, "recognized a whitespace line as a blank");
+    }
+
+    #[test]
+    fn test_malformed_lines() {
+        // a timestamp with nothing after it is an error
+        assert!(matches!(
+            parse_line("2019 12 1 16 3 30", 0),
+            Item::Error(_, _)
+        ));
+        // an unescaped '<' in the tags is an error
+        assert!(matches!(
+            parse_line("2019 12 1 16 3 30:foo<bar:desc", 0),
+            Item::Error(_, _)
+        ));
+        // tags with no terminating colon are an error
+        assert!(matches!(
+            parse_line("2019 12 1 16 3 30:foo bar", 0),
+            Item::Error(_, _)
+        ));
+        // ":DONE" followed by non-whitespace is an error
+        assert!(matches!(
+            parse_line("2019 12 1 16 3 30:DONE x", 0),
+            Item::Error(_, _)
+        ));
+        // a trailing lone backslash in the tags is an error
+        assert!(matches!(
+            parse_line("2019 12 1 16 3 30:foo\\", 0),
+            Item::Error(_, _)
+        ));
+        // impossible timestamps are errors
+        assert!(matches!(
+            parse_line("2019 13 1 16 3 30::desc", 0),
+            Item::Error(_, _)
+        ));
+        assert!(matches!(
+            parse_line("2019 12 1 25 3 30::desc", 0),
+            Item::Error(_, _)
+        ));
+        // ...but ":DONE" with trailing whitespace is fine
+        assert!(matches!(
+            parse_line("2019 12 1 16 3 30:DONE  ", 0),
+            Item::Done(_, _)
+        ));
+        // a description may contain colons and '<'
+        match parse_line("2019 12 1 16 3 30::a:b <c>", 0) {
+            Item::Event(
+                Event {
+                    description, tags, ..
+                },
+                _,
+            ) => {
+                assert!(tags.is_empty());
+                assert_eq!("a:b <c>", description);
+            }
+            _ => panic!("failed to parse an event line"),
+        }
+    }
+
+    #[test]
+    fn stack_overflow_regression() {
+        let (items, path) = random_log(23, vec![Need::E, Need::E], "stack_overflow_regression");
+        let events = closed_events(items);
+        assert!(events.len() > 1, "found more than one event");
+        let (conf_path, conf) = test_configuration("stack_overflow_regression");
+        let mut log_reader = LogController::new(Some(PathBuf::from(&path)), &conf).unwrap();
+        let e = events.first().unwrap();
+        let false_start = e.start - Duration::days(1);
+        let found_events = log_reader.events_in_range(&false_start, e.end.as_ref().unwrap());
+        assert_eq!(1, found_events.len(), "found one event");
+        assert_eq!(e.start, found_events[0].start, "same start");
+        assert_eq!(e.end, found_events[0].end, "same end");
+        assert_eq!(e.tags, found_events[0].tags, "same tags");
+        assert_eq!(
+            e.description, found_events[0].description,
+            "same description"
+        );
+        cleanup(&[&path, &conf_path]);
+    }
+
+    #[test]
+    fn test_find_line_out_of_bounds() {
+        // regression test: find_line must terminate (and return the sensible bound)
+        // when the sought time is before the first line or after the last line,
+        // even when the bracket is large enough to use interpolation in estimate
+        let path = format!(
+            "test_find_line_out_of_bounds-{}.log",
+            Local::now().naive_local().and_utc().timestamp_millis()
+        );
+        let mut contents = String::from("# job log\n");
+        // 40 events with distinct, increasing timestamps, all sharing a few timestamps
+        // in groups to exercise advance_to_first as well
+        for day in 1..=20 {
+            for hour in [9, 17] {
+                contents.push_str(&format!(
+                    "2020 1 {} {} 0 0:work:task day {} hour {}\n",
+                    day, hour, day, hour
+                ));
+            }
+        }
+        std::fs::write(&path, contents).unwrap();
+        let (conf_path, conf) = test_configuration("test_find_line_out_of_bounds");
+        let mut log = LogController::new(Some(PathBuf::from(&path)), &conf).unwrap();
+
+        let before_all = NaiveDate::from_ymd_opt(2019, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
+        let item = log.find_line(&before_all).expect("should find a line");
+        assert_eq!(
+            item.offset(),
+            1,
+            "time before all lines finds the first line"
+        );
+
+        let after_all = NaiveDate::from_ymd_opt(2021, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
+        let item = log.find_line(&after_all).expect("should find a line");
+        let (t, _) = item.time().unwrap();
+        assert_eq!(
+            NaiveDate::from_ymd_opt(2020, 1, 20)
+                .unwrap()
+                .and_hms_opt(17, 0, 0)
+                .unwrap(),
+            *t,
+            "time after all lines finds the latest timestamp"
+        );
+
+        let exact = NaiveDate::from_ymd_opt(2020, 1, 10)
+            .unwrap()
+            .and_hms_opt(9, 0, 0)
+            .unwrap();
+        let item = log.find_line(&exact).expect("should find a line");
+        let (t, _) = item.time().unwrap();
+        assert_eq!(exact, *t, "exact timestamp finds its line");
+
+        cleanup(&[&path, &conf_path]);
     }
 }

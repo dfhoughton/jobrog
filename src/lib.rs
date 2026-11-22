@@ -15,8 +15,3 @@ pub mod truncate;
 pub mod util;
 pub mod vacation;
 pub mod when;
-extern crate clap;
-#[macro_use]
-extern crate pidgin;
-#[macro_use]
-extern crate lazy_static;

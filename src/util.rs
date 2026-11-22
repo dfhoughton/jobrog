@@ -1,18 +1,10 @@
-extern crate ansi_term;
-extern crate chrono;
-extern crate clap;
-extern crate colonnade;
-extern crate dirs;
-extern crate pidgin;
-extern crate regex;
-
 use crate::configure::Configuration;
 use crate::log::{Event, Item, LogController, Note};
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
-use clap::{App, Arg, ArgMatches};
+use clap::Args as ClapArgs;
 use colonnade::{Alignment, Colonnade};
 use dirs::home_dir;
-use pidgin::{Grammar, Matcher};
+use nu_ansi_term::{Color, Style as AnsiStyle};
 use regex::Regex;
 use std::collections::BTreeMap;
 use std::fs::{create_dir, File};
@@ -20,157 +12,112 @@ use std::io;
 use std::io::Write;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::LazyLock;
 
 const ONGOING: &str = "ongoing";
 
-// a collection of arguments used in many subcommands concerned with searching for or filtering events
-pub fn common_search_or_filter_arguments(
-    app: App<'static, 'static>,
-    for_events: Option<bool>,
-) -> App<'static, 'static> {
-    if for_events.is_none() {
-        app.arg(
-            Arg::with_name("notes")
-            .short("n")
-            .long("notes")
-            .help("Considers notes, not events")
-            .long_help("Considers only notes, not events. If this is false, only events are considered, not notes.")
-            .display_order(1)
-            )
-    } else {
-        app
-    }.arg(
-        Arg::with_name("tag")
-        .short("t")
-        .long("tag")
-        .visible_alias("tag-all")
-        .validator(|v| if some_nws(&v) {Ok(())} else {Err(format!("tag {:?} needs some non-whitespace character", v))})
-        .multiple(true)
-        .number_of_values(1)
-        .help(match for_events {
-            Some(true) => "Skips events that lack this tag",
-            Some(false) => "Skips notes that lack this tag",
-            None => "Skips events/notes that lack this tag"
-        })
-        .long_help(match for_events {
-            Some(true) => "Skips events that lack this tag.",
-            Some(false) => "Skips notes that lack this tag.",
-            None => "Skips events/notes that lack this tag."
-        })
-        .conflicts_with("no-tags")
-        .value_name("tag")
-        .display_order(1)
-    )
-    .arg(
-        Arg::with_name("tag-none")
-        .short("T")
-        .long("tag-none")
-        .visible_alias("tn")
-        .validator(|v| if some_nws(&v) {Ok(())} else {Err(format!("tag {:?} needs some non-whitespace character", v))})
-        .multiple(true)
-        .number_of_values(1)
-        .help(match for_events {
-            Some(true) => "Skips events that have this tag",
-            Some(false) => "Skips notes that have this tag",
-            None => "Skips events/notes that have this tag"
-        })
-        .long_help(match for_events {
-            Some(true) => "Skips events that have this tag.",
-            Some(false) => "Skips notes that have this tag.",
-            None => "Skips events/notes that have this tag."
-        })
-        .value_name("tag")
-        .display_order(2)
-    )
-    .arg(
-        Arg::with_name("tag-some")
-        .short("s")
-        .long("tag-some")
-        .validator(|v| if some_nws(&v) {Ok(())} else {Err(format!("tag {:?} needs some non-whitespace character", v))})
-        .visible_alias("ts")
-        .multiple(true)
-        .number_of_values(1)
-        .help(match for_events {
-            Some(true) => "Skips events that lack any of these tags",
-            Some(false) => "Skips notes that lack any of these tags",
-            None => "Skips events/notes that lack any of these tags"
-        })
-        .long_help(match for_events {
-            Some(true) => "Skips events that lack any of these tags. This is identical to --tag if only one value is provided. It is useful when you are looking for the last event that is tagged with some subset of a particular set of tags.",
-            Some(false) => "Skips notes that lack any of these tags. This is identical to --tag if only one value is provided. It is useful when you are looking for the last note that is tagged with some subset of a particular set of tags.",
-            None => "Skips events or notes that lack any of these tags. This is identical to --tag if only one value is provided. It is useful when you are looking for the last event/note that is tagged with some subset of a particular set of tags."
-        })
-        .value_name("tag")
-        .conflicts_with("no-tags")
-        .display_order(3)
-    )
-    .arg(
-        Arg::with_name("no-tags")
-        .short("e")
-        .long("empty")
-        .visible_alias("no-tags")
-        .help(match for_events {
-            Some(true) => "Selects events that lack tags",
-            Some(false) => "Selects notes that lack tags",
-            None => "Selects events/notes that lack tags"
-        })
-        .conflicts_with_all(&["tag-some", "tag"])
-        .display_order(4)
-    )
-    .arg(
-        Arg::with_name("rx")
-        .long("rx")
-        .multiple(true)
-        .number_of_values(1)
-        .help(match for_events {
-            Some(true) => "Finds events whose description matches this pattern",
-            Some(false) => "Finds notes whose text matches this pattern",
-            None => "Finds events/notes whose description/text matches this pattern"
-        })
-        .long_help(match for_events {
-            Some(true) => "Finds events whose descriptions match this regular expression.",
-            Some(false) => "Finds notes whose text matches this regular expression.",
-            None => "Finds events or notes whose descriptions or text match this regular expression."
-        })
-        .value_name("pattern")
-        .validator(|arg| if Regex::new(&arg).is_ok() {Ok(())} else {Err(format!("'{}' cannot be parsed as a regular expression", &arg))})
-        .display_order(5)
-    )
-    .arg(
-        Arg::with_name("rx-not")
-        .long("rx-not")
-        .multiple(true)
-        .number_of_values(1)
-        .help(match for_events {
-            Some(true) => "Skips events whose descriptions match this pattern",
-            Some(false) => "Skips notes whose text matches this pattern",
-            None => "Skips events/notes whose descriptions/text match this pattern"
-        })
-        .long_help(match for_events {
-            Some(true) => "Finds events whose descriptions do not match this regular expression.",
-            Some(false) => "Finds notes whose text does not match this regular expression.",
-            None => "Finds events or notes whose descriptions or text do not match this regular expression."
-        })
-        .value_name("pattern")
-        .validator(|arg| if Regex::new(&arg).is_ok() {Ok(())} else {Err(format!("'{}' cannot be parsed as a regular expression", &arg))})
-        .display_order(6)
-    )
+/// Arguments used in many subcommands concerned with searching for or filtering events
+#[derive(Debug, ClapArgs)]
+pub struct FilterArgs {
+    /// Considers only notes, not events
+    ///
+    /// Considers only notes, not events. If this is false, only events are considered, not notes.
+    #[arg(short = 'n', long)]
+    pub notes: bool,
+
+    /// Skips events/notes that lack this tag
+    ///
+    /// Skips events/notes that lack this tag.
+    #[arg(
+        short = 't',
+        long,
+        value_name = "tag",
+        visible_alias = "tag-all",
+        conflicts_with = "no_tags",
+        value_parser = valid_tag
+    )]
+    pub tag: Vec<String>,
+
+    /// Skips events/notes that have this tag
+    ///
+    /// Skips events/notes that have this tag.
+    #[arg(
+        short = 'T',
+        long,
+        value_name = "tag",
+        visible_alias = "tn",
+        value_parser = valid_tag
+    )]
+    pub tag_none: Vec<String>,
+
+    /// Skips events/notes that lack any of these tags
+    ///
+    /// Skips events or notes that lack any of these tags. This is identical to --tag if only
+    /// one value is provided. It is useful when you are looking for the last event/note that
+    /// is tagged with some subset of a particular set of tags.
+    #[arg(
+        short = 's',
+        long,
+        value_name = "tag",
+        visible_alias = "ts",
+        conflicts_with = "no_tags",
+        value_parser = valid_tag
+    )]
+    pub tag_some: Vec<String>,
+
+    /// Selects events/notes that lack tags
+    #[arg(
+        short = 'e',
+        long = "empty",
+        visible_alias = "no-tags",
+        conflicts_with_all = ["tag_some", "tag"]
+    )]
+    pub no_tags: bool,
+
+    /// Finds events/notes whose description/text matches this pattern
+    ///
+    /// Finds events or notes whose descriptions or text match this regular expression.
+    #[arg(long, value_name = "pattern", value_parser = valid_rx)]
+    pub rx: Vec<String>,
+
+    /// Skips events/notes whose descriptions/text match this pattern
+    ///
+    /// Finds events or notes whose descriptions or text do not match this regular expression.
+    #[arg(long, value_name = "pattern", value_parser = valid_rx)]
+    pub rx_not: Vec<String>,
 }
 
-// concatenate the trailing arguments -- we need to do this often enough it seems worth DRYing up
-pub fn remainder(argname: &str, matches: &ArgMatches) -> std::string::String {
-    matches
-        .values_of(argname)
-        .unwrap()
-        .collect::<Vec<&str>>()
-        .join(" ")
+/// A tag must have some non-whitespace character
+pub fn valid_tag(v: &str) -> Result<String, String> {
+    if some_nws(v) {
+        Ok(v.to_owned())
+    } else {
+        Err(format!("tag {:?} needs some non-whitespace character", v))
+    }
+}
+
+/// A time expression must be parsable by two_timer
+pub fn valid_time_expression(v: &str) -> Result<String, String> {
+    if two_timer::parsable(v) {
+        Ok(v.to_owned())
+    } else {
+        Err(format!("cannot parse '{}' as a time expression", v))
+    }
+}
+
+/// A pattern must be a valid regular expression
+pub fn valid_rx(v: &str) -> Result<String, String> {
+    match Regex::new(v) {
+        Ok(_) => Ok(v.to_owned()),
+        Err(_) => Err(format!("'{}' cannot be parsed as a regular expression", v)),
+    }
 }
 
 pub fn base_dir(directory: Option<&str>) -> std::path::PathBuf {
     if let Some(dir) = directory {
-        PathBuf::from_str(dir).expect(&format!("could not treat {} as a file path", dir))
+        PathBuf::from_str(dir).expect("could not treat the argument as a file path")
     } else {
-        let mut dir = home_dir().unwrap();
+        let mut dir = home_dir().expect("could not find home directory");
         dir.push(".joblog");
         dir
     }
@@ -186,9 +133,7 @@ fn time_string(this_time: &Option<NaiveDateTime>, conf: &Configuration) -> Strin
     if let Some(this_time) = this_time {
         let format = if conf.h12 { "%l:%M" } else { "%k:%M" };
         // replace a space with non-breaking whitespace that won't be stripped or split by colonnade
-        format!("{}", this_time.format(format))
-            .as_str()
-            .replace(" ", "\u{00A0}")
+        format!("{}", this_time.format(format)).replace(' ', "\u{00A0}")
     } else {
         String::from(ONGOING)
     }
@@ -223,22 +168,22 @@ pub fn display_notes(
     let data: Vec<Vec<String>> = notes
         .iter()
         .map(|n| {
-            let mut parts = Vec::with_capacity(3);
-            parts.push(time_string(&Some(n.time), conf));
-            parts.push(n.tags.join(", "));
-            parts.push(n.description.clone());
-            parts
+            vec![
+                time_string(&Some(n.time), conf),
+                n.tags.join(", "),
+                n.description.clone(),
+            ]
         })
         .collect();
     let mut note_table = Colonnade::new(3, conf.width()).unwrap();
     note_table.priority(0).left_margin(2).unwrap();
-    note_table.columns[0].alignment(Alignment::Right);
-    note_table.columns[1].priority(1);
-    note_table.columns[2].priority(2);
+    note_table.columns[0].set_alignment(Alignment::Right);
+    note_table.columns[1].set_priority(1);
+    note_table.columns[2].set_priority(2);
 
     for (offset, row) in note_table.macerate(data).unwrap().iter().enumerate() {
         let date = notes[offset].time.date();
-        if last_date.is_none() || last_date.unwrap() != date {
+        if last_date.is_none_or(|d| d != date) {
             println!("{}", style.paint("header", date_string(&date, same_year)));
         }
         last_date = Some(date);
@@ -261,9 +206,7 @@ pub fn display_events(
     end: &NaiveDateTime,
     conf: &Configuration,
 ) {
-    lazy_static! {
-        static ref ANY_CONTENT: Regex = Regex::new(r"\S").unwrap();
-    }
+    static ANY_CONTENT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\S").unwrap());
     let style = Style::new(conf);
     let mut last_date: Option<NaiveDate> = None;
     let mut durations: BTreeMap<String, f32> = BTreeMap::new();
@@ -309,11 +252,11 @@ pub fn display_events(
         .priority(0)
         .left_margin(2)
         .expect("insufficient space for events table -- setting margin");
-    event_table.columns[0].alignment(Alignment::Right);
-    event_table.columns[1].left_margin(1);
-    event_table.columns[2].left_margin(1);
-    event_table.columns[4].priority(1);
-    event_table.columns[5].priority(2);
+    event_table.columns[0].set_alignment(Alignment::Right);
+    event_table.columns[1].set_left_margin(1);
+    event_table.columns[2].set_left_margin(1);
+    event_table.columns[4].set_priority(1);
+    event_table.columns[5].set_priority(2);
 
     last_date = None;
     for (offset, row) in event_table
@@ -327,7 +270,7 @@ pub fn display_events(
         if date < start.date() {
             continue;
         }
-        if last_date.is_none() || last_date.unwrap() != date {
+        if last_date.is_none_or(|d| d != date) {
             println!("{}", style.paint("header", date_string(&date, same_year)));
         }
         last_date = Some(date);
@@ -342,7 +285,7 @@ pub fn display_events(
                         }
                     }
                     2 => {
-                        if e.overlaps_end() && ANY_CONTENT.is_match(cell) || cell == ONGOING {
+                        if (e.overlaps_end() && ANY_CONTENT.is_match(cell)) || cell == ONGOING {
                             style.paint("alert", cell)
                         } else {
                             cell.to_owned()
@@ -367,7 +310,7 @@ pub fn display_events(
 
     let mut tags_table =
         Colonnade::new(2, conf.width()).expect("insufficient space for tags table");
-    tags_table.columns[1].alignment(Alignment::Right);
+    tags_table.columns[1].set_alignment(Alignment::Right);
     let mut data = vec![vec![
         String::from("TOTAL HOURS"),
         duration_string(total_duration, conf),
@@ -415,17 +358,17 @@ pub fn display_events(
 }
 
 pub fn success<T: ToString>(msg: T, conf: &Configuration) {
-    let style = Style::new(&conf);
+    let style = Style::new(conf);
     eprintln!("{} {}", style.paint("success", "ok:"), msg.to_string());
 }
 
 pub fn warn<T: ToString>(msg: T, conf: &Configuration) {
-    let style = Style::new(&conf);
+    let style = Style::new(conf);
     eprintln!("{} {}", style.paint("warning", "warning:"), msg.to_string());
 }
 
-pub fn fatal<T: ToString>(msg: T, conf: &Configuration) {
-    let style = Style::new(&conf);
+pub fn fatal<T: ToString>(msg: T, conf: &Configuration) -> ! {
+    let style = Style::new(conf);
     eprintln!("{} {}", style.paint("error", "error:"), msg.to_string());
     std::process::exit(1);
 }
@@ -492,10 +435,12 @@ pub fn check_for_ongoing_event(reader: &mut LogController, conf: &Configuration)
 // make sure base directory and its files are present
 pub fn init(directory: Option<&str>) {
     if !base_dir(directory).as_path().exists() {
-        create_dir(base_dir(directory).to_str().unwrap()).expect(&format!(
-            "could not create base directory {}",
-            base_dir(directory).to_str().unwrap()
-        ));
+        create_dir(base_dir(directory).to_str().unwrap()).unwrap_or_else(|_| {
+            panic!(
+                "could not create base directory {}",
+                base_dir(directory).to_str().unwrap()
+            )
+        });
         let hidden = base_dir(directory)
             .as_path()
             .file_name()
@@ -520,100 +465,141 @@ pub fn init(directory: Option<&str>) {
     if !readme_path.as_path().exists() {
         let mut readme =
             File::create(readme_path.to_str().unwrap()).expect("could not create README file");
-        readme.write_all(b"\nJob Log\n\nThis directory holds files used by Job Log to maintain\na work log. For more details type\n\n   job --help\n\non the command line.\n\n       
-").expect("could not write README");
+        readme.write_all(b"\nJob Log\n\nThis directory holds files used by Job Log to maintain\na work log. For more details type\n\n   job --help\n\non the command line.\n\n       \n").expect("could not write README");
     }
 }
 
-lazy_static! {
-    // making this public is useful for testing, but best to keep it hidden to
-    // limit complexity and commitment
-    #[doc(hidden)]
-    // to validate a line we use this
-    pub static ref STYLE: Grammar = grammar!{
-        (?bB)
+const NON_COLORS: [&str; 7] = [
+    "bold",
+    "italic",
+    "underline",
+    "dimmed",
+    "blink",
+    "reverse",
+    "hidden",
+];
 
-        TOP -> r(r"\A") <spec>* r(r"\z")
+const NAMED_COLORS: [&str; 8] = [
+    "black", "red", "green", "yellow", "blue", "purple", "cyan", "white",
+];
 
-        spec        -> <non_color> | <foreground> | <background>
-        non_color   => [["bold", "italic", "underline", "dimmed", "blink", "reverse", "hidden"]]
-        foreground  -> <fg>? <color>
-        background  -> <bg>  <color>
-        fg          => [["fg", "foreground"]]
-        bg          => [["bg", "background"]]
-        color       -> <named> | <fixed>
-        named       => [["black", "red", "green", "yellow", "blue", "purple", "cyan", "white"]]
-        fixed       => [(0..256).map(|i| i.to_string()).collect::<Vec<_>>()]
-    };
-    // to parse the line we use this iteratively
-    pub static ref SPEC : Grammar = STYLE.rule("spec").unwrap();
-    pub static ref STYLE_MATCHER: Matcher = STYLE.matcher().unwrap();
-    pub static ref SPEC_MATCHER: Matcher = SPEC.matcher().unwrap();
+/// One component of a style specification, e.g. `bold`, `red`, or `bg 1`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StyleSpec {
+    NonColor(&'static str),
+    Foreground(Color),
+    Background(Color),
+}
+
+fn parse_color(token: &str) -> Option<Color> {
+    const COLORS: [Color; 8] = [
+        Color::Black,
+        Color::Red,
+        Color::Green,
+        Color::Yellow,
+        Color::Blue,
+        Color::Purple,
+        Color::Cyan,
+        Color::White,
+    ];
+    if let Some(i) = NAMED_COLORS.iter().position(|name| *name == token) {
+        return Some(COLORS[i]);
+    }
+    {
+        // fixed colors are the decimal numbers 0-255 without leading zeroes
+        if !token.is_empty()
+            && token.bytes().all(|b| b.is_ascii_digit())
+            && (token.len() == 1 || !token.starts_with('0'))
+        {
+            token.parse::<u8>().ok().map(Color::Fixed)
+        } else {
+            None
+        }
+    }
+}
+
+/// Parses a style specification such as "bold red bg 1" into its component specs.
+/// Returns `None` if the string is not a valid style specification.
+pub fn parse_style_spec(s: &str) -> Option<Vec<StyleSpec>> {
+    let mut specs = Vec::new();
+    let mut tokens = s.split_whitespace();
+    while let Some(token) = tokens.next() {
+        if NON_COLORS.contains(&token) {
+            specs.push(StyleSpec::NonColor(match token {
+                "bold" => "bold",
+                "italic" => "italic",
+                "underline" => "underline",
+                "dimmed" => "dimmed",
+                "blink" => "blink",
+                "reverse" => "reverse",
+                "hidden" => "hidden",
+                _ => unreachable!(),
+            }));
+        } else if token == "fg" || token == "foreground" {
+            let color = parse_color(tokens.next()?)?;
+            specs.push(StyleSpec::Foreground(color));
+        } else if token == "bg" || token == "background" {
+            let color = parse_color(tokens.next()?)?;
+            specs.push(StyleSpec::Background(color));
+        } else if let Some(color) = parse_color(token) {
+            specs.push(StyleSpec::Foreground(color));
+        } else {
+            return None;
+        }
+    }
+    Some(specs)
+}
+
+/// Whether the string is a valid style specification
+pub fn is_valid_style(s: &str) -> bool {
+    parse_style_spec(s).is_some()
+}
+
+fn build_ansi_style(specs: &[StyleSpec]) -> AnsiStyle {
+    // the last foreground color, if any, forms the base style
+    let mut style = specs
+        .iter()
+        .rev()
+        .find_map(|spec| match spec {
+            StyleSpec::Foreground(color) => Some(color.normal()),
+            _ => None,
+        })
+        .unwrap_or_default();
+    for spec in specs {
+        match spec {
+            StyleSpec::NonColor(name) => {
+                style = match *name {
+                    "bold" => style.bold(),
+                    "italic" => style.italic(),
+                    "underline" => style.underline(),
+                    "dimmed" => style.dimmed(),
+                    "blink" => style.blink(),
+                    "reverse" => style.reverse(),
+                    "hidden" => style.hidden(),
+                    _ => unreachable!(),
+                }
+            }
+            // the foreground color is already incorporated as the base style
+            StyleSpec::Foreground(_) => (),
+            StyleSpec::Background(color) => style = style.on(*color),
+        }
+    }
+    style
 }
 
 // putting this into a common struct so we can easily turn color off
 pub struct Style {
     noop: bool,
-    style_map: BTreeMap<String, ansi_term::Style>,
+    style_map: BTreeMap<String, AnsiStyle>,
 }
 
 impl Style {
     pub fn new(conf: &Configuration) -> Style {
         let mut style_map = BTreeMap::new();
         for pair in &conf.style_map {
-            let specs = SPEC_MATCHER
-                .rx
-                .find_iter(&pair.1)
-                .map(|m| SPEC_MATCHER.parse(m.as_str()).unwrap())
-                .collect::<Vec<_>>();
-            let foreground = specs.iter().filter(|m| m.has("foreground"));
-            let mut style = if let Some(m) = foreground.last() {
-                let color = m.name("color").unwrap().as_str();
-                match color {
-                    "black" => ansi_term::Color::Black,
-                    "red" => ansi_term::Color::Red,
-                    "green" => ansi_term::Color::Green,
-                    "purple" => ansi_term::Color::Purple,
-                    "blue" => ansi_term::Color::Blue,
-                    "cyan" => ansi_term::Color::Cyan,
-                    "white" => ansi_term::Color::White,
-                    "yellow" => ansi_term::Color::Yellow,
-                    _ => ansi_term::Color::Fixed(color.parse().unwrap()),
-                }
-                .normal()
-            } else {
-                ansi_term::Style::default()
-            };
-            for m in specs {
-                if m.has("foreground") {
-                    continue;
-                }
-                style = if m.has("non_color") {
-                    match m.as_str() {
-                        "bold" => style.bold(),
-                        "italic" => style.italic(),
-                        "underline" => style.underline(),
-                        "dimmed" => style.dimmed(),
-                        "blink" => style.blink(),
-                        "reverse" => style.reverse(),
-                        "hidden" => style.hidden(),
-                        _ => unreachable!(),
-                    }
-                } else {
-                    let color = m.name("color").unwrap().as_str();
-                    match color {
-                        "black" => style.on(ansi_term::Color::Black),
-                        "red" => style.on(ansi_term::Color::Red),
-                        "green" => style.on(ansi_term::Color::Green),
-                        "purple" => style.on(ansi_term::Color::Purple),
-                        "blue" => style.on(ansi_term::Color::Blue),
-                        "cyan" => style.on(ansi_term::Color::Cyan),
-                        "white" => style.on(ansi_term::Color::White),
-                        "yellow" => style.on(ansi_term::Color::Yellow),
-                        _ => style.on(ansi_term::Color::Fixed(color.parse().unwrap())),
-                    }
-                }
-            }
+            let style = parse_style_spec(pair.1)
+                .map(|specs| build_ansi_style(&specs))
+                .unwrap_or_default();
             style_map.insert(pair.0.clone(), style);
         }
         Style {
@@ -635,12 +621,7 @@ impl Style {
 
 // for use in validating tags
 pub fn some_nws(s: &str) -> bool {
-    for c in s.chars() {
-        if !c.is_whitespace() {
-            return true;
-        }
-    }
-    return false;
+    s.chars().any(|c| !c.is_whitespace())
 }
 
 // ask a yes or no question and await an answer
@@ -652,11 +633,11 @@ pub fn yes_or_no<T: ToString>(msg: T) -> bool {
         io::stdin()
             .read_line(&mut buffer)
             .expect("failed to read response");
-        let buffer = buffer.as_str().trim().to_owned();
-        if buffer.len() == 0 {
+        let buffer = buffer.trim();
+        if buffer.is_empty() {
             return true;
         }
-        match buffer.as_str() {
+        match buffer {
             "y" | "Y" => return true,
             "n" | "N" => return false,
             _ => {
@@ -690,31 +671,49 @@ mod tests {
             "bg black",
             "background black",
         ] {
-            assert!(STYLE_MATCHER.is_match(style));
+            assert!(is_valid_style(style), "{:?} should be a valid style", style);
         }
     }
 
     #[test]
     fn styles_that_dont_match() {
-        for style in &["boldbold", "boldunderline", "foreground 256", "256"] {
-            assert!(!STYLE_MATCHER.is_match(style))
+        for style in &[
+            "boldbold",
+            "boldunderline",
+            "foreground 256",
+            "256",
+            "fg",
+            "01",
+            "+1",
+            "redx",
+        ] {
+            assert!(
+                !is_valid_style(style),
+                "{:?} should not be a valid style",
+                style
+            );
         }
     }
 
     #[test]
     fn parsing_styles() {
-        let style = "red bold bg 1";
-        let parses = SPEC_MATCHER
-            .rx
-            .find_iter(style)
-            .map(|m| SPEC_MATCHER.parse(m.as_str()).unwrap())
-            .collect::<Vec<_>>();
-        assert!(parses[0].has("foreground"));
-        assert!(parses[0].has("color"));
-        assert!(parses[0].has("named"));
-        assert!(parses[1].has("non_color"));
-        assert!(parses[2].has("background"));
-        assert!(parses[2].has("color"));
-        assert!(parses[2].has("fixed"));
+        let specs = parse_style_spec("red bold bg 1").unwrap();
+        assert_eq!(
+            specs,
+            vec![
+                StyleSpec::Foreground(Color::Red),
+                StyleSpec::NonColor("bold"),
+                StyleSpec::Background(Color::Fixed(1)),
+            ]
+        );
+        let specs = parse_style_spec("bold dimmed bg cyan").unwrap();
+        assert_eq!(
+            specs,
+            vec![
+                StyleSpec::NonColor("bold"),
+                StyleSpec::NonColor("dimmed"),
+                StyleSpec::Background(Color::Cyan),
+            ]
+        );
     }
 }

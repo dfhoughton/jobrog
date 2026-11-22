@@ -111,39 +111,44 @@ The typical things one does with job log are
 Here is the complete list (`job help`):
 
 ```
-testing 0.3.0
-dfhoughton <dfhoughton@gmail.com>
+job 2.0.0
 command line job clock
 
-USAGE:
-    job [OPTIONS] [SUBCOMMAND]
+Usage: job [OPTIONS] [COMMAND]
 
-FLAGS:
-    -h, --help       Prints help information
-    -V, --version    Prints version information
+Commands:
+  add         Adds a new task
+  summary     Provides a list summary of tasks performed in the given period
+  done        Ends a currently open task
+  resume      Resumes a stopped task
+  last        Shows the last task recorded
+  first       Shows the first task recorded
+  note        Adds a new note
+  when        Says when you will have worked all the hours expected within the given period
+  tag         Modifies the tags for specified events/notes
+  edit        Opens the job log in a text editor
+  configure   Sets or displays configuration parameters
+  vacation    Records vacation time
+  parse-time  Shows the start and end timestamps you get from a particular time expression
+  truncate    Truncates the log so it only contains recent events
+  statistics  Shows overall statistics of the log
+  help        Print this message or the help of the given subcommand(s)
 
-OPTIONS:
-    -d, --directory <dir>    Looks in this directory for the log rather than ~/.joblog
+Options:
+  -d, --directory <dir>
+          Looks in this directory for the log rather than ~/.joblog
+          
+          If you need or want to use a directory other than .joblog in your home directory to store job log's log, vacation file, configuration file, and so forth, specify this alternative directory with --directory. As with .joblog, if it does not exist it will be created as needed.
 
-SUBCOMMANDS:
-    add           Adds a new task
-    summary       Provides a list summary of tasks performed today
-    done          Ends a currently open task
-    resume        Resumes a stopped task
-    last          Shows the last task recorded
-    first         Shows the first task recorded
-    note          Adds a new note
-    when          Says when you will have worked all the hours expected within the given period
-    edit          Opens the job log in a text editor
-    configure     Sets or displays configuration parameters
-    vacation      Records vacation time
-    parse-time    Shows the start and end timestamps you get from a particular time expression
-    truncate      Truncates the log so it only contains recent events
-    statistics    Shows overall statistics of the log
-    help          Prints this message or the help of the given subcommand(s)
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
 
 The 'job' executable allows one to maintain and view a log of daily activity.
 ```
+
 
 ## NOTE
 
@@ -243,6 +248,8 @@ Here is a [screencast](https://asciinema.org/a/6W7Ap6l5597eFzXEAVQZ3miMe) of som
 To be ensured the latest version, one needs to use [`cargo`](https://doc.rust-lang.org/cargo/):
 
     cargo install jobrog
+
+Version 2.0.0 and later require Rust 1.85 or newer (the minimum supported Rust version is noted in `Cargo.toml` as `rust-version`).
 
 There is also a [homebrew](https://brew.sh/) tap:
 
